@@ -201,3 +201,23 @@ class EncryptedCaseStore:
                     f"案件 {case_id} 無法解密；請檢查 Keychain 金鑰。"
                 ) from exc
         return cases
+
+    def delete_many(self, case_ids: list[str]) -> int:
+        """Permanently remove encrypted case records and persist the snapshot."""
+        identifiers = list(dict.fromkeys(str(case_id) for case_id in case_ids if case_id))
+        if not identifiers:
+            return 0
+        with self._lock:
+            with self._db:
+                before = self._db.total_changes
+                self._db.executemany(
+                    "DELETE FROM cases WHERE case_id=?",
+                    ((case_id,) for case_id in identifiers),
+                )
+                deleted = self._db.total_changes - before
+            if deleted:
+                self._persist()
+            return deleted
+
+    def delete(self, case_id: str) -> bool:
+        return self.delete_many([case_id]) > 0

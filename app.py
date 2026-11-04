@@ -432,28 +432,92 @@ def _render_case(case: dict, step: str):
 
 @app.route("/")
 def index():
+    all_cases = STORE.list()
+    for item in all_cases:
+        if _migrate_case_workflow(item):
+            STORE.save(item)
+    cases = [case for case in all_cases if not case.get("trashed_at")]
+    trashed_count = sum(1 for case in all_cases if case.get("trashed_at"))
     return render_template(
         "index.html",
-        cases=STORE.list(),
+        cases=cases,
+        trashed_count=trashed_count,
         csrf_token=session["csrf_token"],
         schema_missing=MISSING_TEMPLATES,
+        step_count=len(STEP_ORDER),
+        step_titles=STEP_TITLES,
+    )
+
+
+@app.route("/trash")
+def trash():
+    trashed_cases = [case for case in STORE.list() if case.get("trashed_at")]
+    return render_template(
+        "trash.html",
+        cases=trashed_cases,
+        csrf_token=session["csrf_token"],
     )
 
 
 @app.post("/cases")
 def create_case():
     _check_csrf()
-    case = _new_case()
+    try:
+        case = _new_case()
+    except ValueError as exc:
+        flash(str(exc), "error")
+        return redirect(url_for("index"))
     STORE.save(case)
-    return redirect(url_for("case_page", case_id=case["id"], step="D2"))
+    return redirect(url_for("case_page", case_id=case["id"], step="7.1"))
+
+
+@app.post("/cases/<case_id>/trash")
+def trash_case(case_id: str):
+    _check_csrf()
+    case = _case_or_404(case_id)
+    case["trashed_at"] = _local_now()
+    _record_event(case, "案件已移至垃圾桶")
+    STORE.save(case)
+    flash(f"案件 {case.get('case_number', '')} 已移至垃圾桶。", "success")
+    return redirect(url_for("index"))
+
+
+@app.post("/trash/<case_id>/delete")
+def delete_trashed_case(case_id: str):
+    _check_csrf()
+    case = STORE.get(case_id)
+    if case is None or not case.get("trashed_at"):
+        abort(404)
+    case_number = case.get("case_number", "")
+    if not STORE.delete(case_id):
+        abort(404)
+    flash(f"案件 {case_number} 已永久刪除。", "success")
+    return redirect(url_for("trash"))
+
+
+@app.post("/trash/empty")
+def empty_trash():
+    _check_csrf()
+    trashed_ids = [
+        case["id"] for case in STORE.list()
+        if case.get("trashed_at") and case.get("id")
+    ]
+    deleted_count = STORE.delete_many(trashed_ids)
+    if deleted_count:
+        flash(f"垃圾桶已清空，永久刪除 {deleted_count} 件案件。", "success")
+    else:
+        flash("垃圾桶目前是空的。", "success")
+    return redirect(url_for("trash"))
 
 
 @app.get("/cases/<case_id>")
 def case_page(case_id: str):
     case = _case_or_404(case_id)
-    step = request.args.get("step", case.get("current_step", "D2"))
+    step = request.args.get("step", case.get("current_step", "7.1"))
+    step = LEGACY_STEP_MAP.get(step, step)
     if step not in STEP_ORDER:
-        step = case.get("current_step", "D2")
+        step = case.get("current_step", "7.1")
+    _set_report_stage(case, step)
     case["current_step"] = step
     STORE.save(case)
     return _render_case(case, step)

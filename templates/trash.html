@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}垃圾桶 | PSIRT CRA 輔助填寫平台{% endblock %}
+{% block content %}
+<nav class="breadcrumbs" aria-label="頁面位置">
+  <a href="{{ url_for('index') }}">案件清單</a><span>/</span><span>垃圾桶</span>
+</nav>
+
+<section class="hero trash-hero">
+  <div>
+    <p class="eyebrow">TRASH</p>
+    <h1>垃圾桶</h1>
+    <p class="hero-copy">移入垃圾桶的案件會暫時保留；永久刪除或清空垃圾桶後，平台將無法復原。</p>
+  </div>
+  <a class="button secondary" href="{{ url_for('index') }}">回案件清單</a>
+</section>
+
+<section class="section-heading">
+  <div><h2>已移入的案件</h2><p>可逐件永久刪除，或一次清空整個垃圾桶。</p></div>
+  <div class="section-heading-actions">
+    <span class="count-pill">{{ cases|length }} 件</span>
+    <form action="{{ url_for('empty_trash') }}" method="post"
+          data-confirm="確定清空垃圾桶？其中所有案件都會永久刪除，且無法復原。">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button class="button danger" type="submit" {% if not cases %}disabled{% endif %}>清空垃圾桶</button>
+    </form>
+  </div>
+</section>
+
+{% if cases %}
+  <div class="case-list trash-list">
+    {% for item in cases %}
+      <article class="case-card trash-card">
+        <div class="case-card-main">
+          <span class="case-id">{{ item.case_number }}</span>
+          <h3>{{ item.title or "未命名案件" }}</h3>
+          <p>移入時間：{{ item.trashed_at }} · 最後更新：{{ item.updated_local }}</p>
+        </div>
+        <div class="trash-card-actions">
+          <form action="{{ url_for('delete_trashed_case', case_id=item.id) }}" method="post"
+                data-confirm="確定永久刪除案件 {{ item.case_number }}？此操作無法復原。">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button class="button danger" type="submit">永久刪除</button>
+          </form>
+        </div>
+      </article>
+    {% endfor %}
+  </div>
+{% else %}
+  <div class="empty-state">
+    <div class="empty-icon">✓</div>
+    <h3>垃圾桶是空的</h3>
+    <p>從案件清單將不再需要的案件移至垃圾桶後，可以在這裡永久刪除。</p>
+    <a class="button secondary" href="{{ url_for('index') }}">回案件清單</a>
+  </div>
+{% endif %}
+{% endblock %}

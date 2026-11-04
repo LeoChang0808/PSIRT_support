@@ -2,6 +2,12 @@
   const csrf = document.querySelector('meta[name="csrf-token"]')?.content || "";
   const saveIndicator = document.getElementById("save-indicator");
 
+  document.querySelectorAll("form[data-confirm]").forEach((form) => {
+    form.addEventListener("submit", (event) => {
+      if (!window.confirm(form.dataset.confirm || "確定執行此操作？")) event.preventDefault();
+    });
+  });
+
   function setSaveState(message, state = "") {
     if (!saveIndicator) return;
     saveIndicator.textContent = message;
