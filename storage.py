@@ -9,6 +9,7 @@ import base64
 import getpass
 import json
 import os
+import re
 import secrets
 import sqlite3
 import subprocess
@@ -116,6 +117,12 @@ class EncryptedCaseStore:
                     encrypted_payload BLOB NOT NULL
                 )"""
             )
+        self._db.execute(
+            """CREATE TABLE IF NOT EXISTS app_meta (
+                meta_key TEXT PRIMARY KEY,
+                meta_value TEXT NOT NULL
+            )"""
+        )
 
         if not self.database_path.exists():
             self._persist()
@@ -163,6 +170,46 @@ class EncryptedCaseStore:
                     (case_id, created_at, now, nonce, ciphertext),
                 )
             self._persist()
+
+    def next_case_number(self, year: int) -> str:
+        """Allocate a per-year CRA case number without reusing deleted numbers."""
+        year_text = f"{int(year):04d}"
+        meta_key = f"case-number-sequence:{year_text}"
+        pattern = re.compile(rf"^CRA-{re.escape(year_text)}-(\d{{4}})$")
+        with self._lock:
+            row = self._db.execute(
+                "SELECT meta_value FROM app_meta WHERE meta_key=?", (meta_key,)
+            ).fetchone()
+            last_number = int(row["meta_value"]) if row is not None else 0
+            rows = self._db.execute(
+                "SELECT case_id, nonce, encrypted_payload FROM cases"
+            ).fetchall()
+            for case_row in rows:
+                try:
+                    plaintext = self._cipher.decrypt(
+                        case_row["nonce"], case_row["encrypted_payload"],
+                        case_row["case_id"].encode("utf-8"),
+                    )
+                    payload = json.loads(plaintext.decode("utf-8"))
+                except Exception as exc:
+                    raise RuntimeError(
+                        f"案件 {case_row['case_id']} 無法解密；請檢查 Keychain 金鑰。"
+                    ) from exc
+                match = pattern.fullmatch(str(payload.get("case_number", "")))
+                if match:
+                    last_number = max(last_number, int(match.group(1)))
+
+            next_number = last_number + 1
+            if next_number > 9999:
+                raise ValueError(f"{year_text} 年的 CRA 案件編號已達 9999，無法再自動產生。")
+            with self._db:
+                self._db.execute(
+                    """INSERT INTO app_meta(meta_key, meta_value) VALUES(?, ?)
+                       ON CONFLICT(meta_key) DO UPDATE SET meta_value=excluded.meta_value""",
+                    (meta_key, str(next_number)),
+                )
+            self._persist()
+            return f"CRA-{year_text}-{next_number:04d}"
 
     def get(self, case_id: str) -> dict[str, Any] | None:
         with self._lock:

@@ -103,8 +103,7 @@ def _local_now() -> str:
 
 def _new_case() -> dict:
     now = _local_now()
-    suffix = secrets.token_hex(2).upper()
-    case_number = f"PSIRT-CRA-{datetime.now().astimezone():%Y%m%d}-{suffix}"
+    case_number = STORE.next_case_number(datetime.now().astimezone().year)
     return {
         "id": secrets.token_urlsafe(18),
         "case_number": case_number,
