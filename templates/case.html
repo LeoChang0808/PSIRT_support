@@ -16,19 +16,42 @@
     </div>
   </div>
   <div class="export-actions">
-    {% if step in ("7.5", "7.6", "7.8", "7.9") %}
-      <a class="button secondary" href="{{ url_for('report_pdf', case_id=case.id) }}"
-         {% if step == "7.8" and not case.srp.intermediate_requested %}hidden data-intermediate-pdf{% endif %}>下載 SRP 填寫資料 PDF</a>
-    {% endif %}
-    {% if step == "7.9" %}
-      {% if final_export_ready %}
-        <a class="button primary" href="{{ url_for('export_bundle', case_id=case.id) }}">統一匯出 D1–D7 表單＋SRP PDF</a>
-      {% else %}
-        <span class="export-locked">完成 7.1–7.9 後即可統一匯出 D1–D7</span>
-      {% endif %}
-    {% endif %}
+    <a class="button primary" data-export-link href="{{ url_for('export_bundle', case_id=case.id) }}">匯出 D1–D7＋SRP PDF</a>
+    <a class="button secondary" data-export-link href="{{ url_for('report_pdf', case_id=case.id) }}">只匯出 SRP 填寫報告</a>
+    <details class="download-menu">
+      <summary>個別下載</summary>
+      <div class="download-popover">
+        {% for code in ("D1", "D2", "D3", "D4", "D5", "D6", "D7") %}
+          <a data-export-link href="{{ url_for('export_xlsx', case_id=case.id, code=code) }}">{{ code }} 表單 XLSX</a>
+        {% endfor %}
+      </div>
+    </details>
   </div>
 </section>
+
+<script id="export-readiness" type="application/json">{{ export_readiness|tojson }}</script>
+<dialog id="export-warning-dialog" class="export-warning-dialog" aria-labelledby="export-warning-title" aria-describedby="export-warning-summary">
+  <div class="export-warning-content">
+    <p class="eyebrow">EXPORT REMINDER</p>
+    <h2 id="export-warning-title">匯出前提醒</h2>
+    <p id="export-warning-summary" class="muted"></p>
+    <section id="export-missing-section" class="export-warning-section" hidden>
+      <h3>尚未填寫欄位 <span id="export-missing-count"></span></h3>
+      <ul id="export-missing-list"></ul>
+      <p id="export-missing-more" class="muted"></p>
+    </section>
+    <section id="export-incomplete-section" class="export-warning-section" hidden>
+      <h3>尚未完成步驟 <span id="export-incomplete-count"></span></h3>
+      <ul id="export-incomplete-list"></ul>
+      <p id="export-incomplete-more" class="muted"></p>
+    </section>
+    <p class="export-warning-note">此提醒不會阻止匯出。</p>
+    <div class="export-warning-actions">
+      <button type="button" class="button secondary" id="export-warning-cancel">返回填寫</button>
+      <button type="button" class="button primary" id="export-warning-continue">仍要匯出</button>
+    </div>
+  </div>
+</dialog>
 
 {% if schema_missing %}
 <div class="notice warning compact">
@@ -105,7 +128,7 @@
              {% if step == "7.8" and not case.srp.intermediate_requested %}hidden data-intermediate-pdf{% endif %}>
           <span class="preview-icon">PDF</span>
           <div><strong>{% if step == "7.8" %}{{ case.srp.type }} · Intermediate Report{% else %}{{ case.srp.type }} · {{ stage_labels.get(case.srp.stage, case.srp.stage) }}{% endif %}</strong><p>下載目前階段的 SRP 人工填寫資料，依 Awareness Time、產品影響、期限與 Evidence ID 整理。</p></div>
-          <a class="button secondary small" href="{{ url_for('report_pdf', case_id=case.id) }}">下載 PDF</a>
+          <a class="button secondary small" data-export-link href="{{ url_for('report_pdf', case_id=case.id) }}">下載 PDF</a>
         </div>
         {% if step in ("7.5", "7.6", "7.9") or step == "7.8" %}
           <article class="field-card submission-card"
@@ -316,7 +339,7 @@
             <button class="button primary" type="submit" data-intent="next">儲存並下一步 →</button>
             <button class="complete-link" type="submit" data-intent="complete">標記完成並下一步</button>
           {% else %}
-            <button class="button primary" type="submit" data-intent="complete">完成步驟並開啟統一匯出</button>
+            <button class="button primary" type="submit" data-intent="complete">完成此步驟</button>
           {% endif %}
         </div>
       </div>

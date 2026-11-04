@@ -449,8 +449,80 @@ def _submission_for_step(case: dict, step: str) -> dict:
     return dict(case.get("srp_submissions", {}).get(submission_key(report_type, stage), {}))
 
 
-def _all_steps_completed(case: dict) -> bool:
-    return all(case.get("steps", {}).get(step) == "completed" for step in STEP_ORDER)
+def _export_readiness(case: dict) -> dict:
+    """Describe incomplete workflow fields for a non-blocking export reminder."""
+    fields = []
+    seen = set()
+
+    def add_field(name: str, label: str, value: object, picker_name: str = "") -> None:
+        fields.append({
+            "name": name,
+            "picker_name": picker_name,
+            "label": label,
+            "filled": bool(str(value or "").strip()),
+        })
+
+    for step in STEP_ORDER:
+        for code, rows in WORKFLOW_FIELDS.get(step, ()):
+            allowed = set(rows)
+            for field in SCHEMA.get(code, []):
+                row = int(field["row"])
+                key = (code, row)
+                if row not in allowed or key in seen:
+                    continue
+                seen.add(key)
+                name = f"field__{code}__{row}__entry"
+                picker_name = f"{name}-datetime" if _uses_datetime_picker(field) else ""
+                add_field(
+                    name, f"{code} · {field['label']}",
+                    _field_value(case, code, field, "entry"), picker_name,
+                )
+
+    awareness = case.get("awareness", {})
+    add_field("awareness_local", "D4 · Awareness Time", awareness.get("local", ""))
+    add_field("awareness_timezone", "D4 · Awareness Time 時區", awareness.get("timezone", ""))
+
+    evidence_meta = case.get("evidence_meta", {})
+    for key, label in (("custodian", "證據保管權責人"), ("location", "受控證據保存位置／資料庫")):
+        add_field(f"evidence_meta__{key}", f"D7 · {label}", evidence_meta.get(key, ""))
+
+    review = evidence_meta.get("review", {})
+    for row, label in D7_REVIEW_FIELDS:
+        if row == 43:
+            add_field(
+                "d7_review__43_details", "D7 · 保管單位／複核人與補充資訊",
+                review.get("43_details", review.get("43", "")),
+            )
+            add_field("d7_review__43_at", "D7 · 複核時間", review.get("43_at", ""))
+            add_field("d7_review__43_timezone", "D7 · 複核時區", review.get("43_timezone", ""))
+        else:
+            add_field(f"d7_review__{row}", f"D7 · {label}", review.get(str(row), ""))
+
+    evidence_fields = (
+        ("evidence_id", "Evidence ID", ""),
+        ("obtained_at", "取得時間", "_picker"),
+        ("timezone", "時區", ""),
+        ("kind", "證據類型", ""),
+        ("description", "內容描述", ""),
+        ("source", "來源", ""),
+        ("location", "受控保存位置", ""),
+        ("custodian", "保管人", ""),
+    )
+    evidence_items = case.get("evidence", [])
+    if not evidence_items:
+        add_field("evidence__none", "D7 · Evidence 索引", "")
+    for index, item in enumerate(evidence_items):
+        for key, label, picker_suffix in evidence_fields:
+            name = f"evidence__{index}__{key}"
+            picker_name = f"{name}{picker_suffix}" if picker_suffix else ""
+            add_field(name, f"D7 · {item.get('evidence_id') or '證據'} · {label}", item.get(key, ""), picker_name)
+
+    incomplete_steps = [
+        {"code": step, "label": STEP_TITLES[step]}
+        for step in STEP_ORDER
+        if case.get("steps", {}).get(step) != "completed"
+    ]
+    return {"fields": fields, "incomplete_steps": incomplete_steps}
 
 
 def _apply_step(case: dict, step: str, values: dict, intent: str) -> None:
@@ -595,7 +667,7 @@ def _render_case(case: dict, step: str):
         fields=_render_fields(case, step),
         template_files=TEMPLATE_FILES,
         form_titles=FORM_TITLES,
-        final_export_ready=_all_steps_completed(case),
+        export_readiness=_export_readiness(case),
         step_count=len(STEP_ORDER),
         csrf_token=session["csrf_token"],
         current_deadlines=current_deadlines,
@@ -752,7 +824,11 @@ def auto_save(case_id: str):
     except ValueError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400
     STORE.save(case)
-    result = {"ok": True, "saved_at": case["updated_local"]}
+    result = {
+        "ok": True,
+        "saved_at": case["updated_local"],
+        "export_readiness": _export_readiness(case),
+    }
     if step in {"7.5", "7.6", "7.9"} or (
         step == "7.8" and case.get("srp", {}).get("intermediate_requested")
     ):
@@ -813,7 +889,12 @@ def create_evidence(case_id: str):
                            (int(match.group(2)),))
     _record_event(case, f"已建立 Evidence ID {evidence_id} 並選用於 {source_step}")
     STORE.save(case)
-    return jsonify({"ok": True, "evidence": record, "saved_at": case["updated_local"]})
+    return jsonify({
+        "ok": True,
+        "evidence": record,
+        "saved_at": case["updated_local"],
+        "export_readiness": _export_readiness(case),
+    })
 
 
 @app.post("/api/cases/<case_id>/awareness")
@@ -838,6 +919,7 @@ def save_awareness(case_id: str):
         },
         "awareness": case["awareness"],
         "saved_at": case["updated_local"],
+        "export_readiness": _export_readiness(case),
     })
 
 
@@ -855,11 +937,27 @@ def report_pdf(case_id: str):
     )
 
 
+@app.get("/cases/<case_id>/export/<code>.xlsx")
+def export_xlsx(case_id: str, code: str):
+    case = _case_or_404(case_id)
+    if code not in (*TEMPLATE_FILES.keys(), "D7"):
+        abort(404)
+    try:
+        data = build_xlsx(code, PROJECT_DIR, case, SCHEMA)
+    except FileNotFoundError as exc:
+        abort(503, description=str(exc))
+    filename = f"{_safe_filename(case.get('case_number', 'case'))}_{code}.xlsx"
+    return send_file(
+        io.BytesIO(data),
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name=filename,
+    )
+
+
 @app.get("/cases/<case_id>/export/all.zip")
 def export_bundle(case_id: str):
     case = _case_or_404(case_id)
-    if not _all_steps_completed(case):
-        abort(403, description="請完成程序 7.1–7.9 後，再統一匯出 D1–D7 表單。")
     bundle = io.BytesIO()
     prefix = _safe_filename(case.get("case_number", "case"))
     try:

@@ -1,6 +1,13 @@
 (() => {
   const csrf = document.querySelector('meta[name="csrf-token"]')?.content || "";
   const saveIndicator = document.getElementById("save-indicator");
+  const exportReadinessNode = document.getElementById("export-readiness");
+  let exportReadiness = {};
+  try {
+    exportReadiness = JSON.parse(exportReadinessNode?.textContent || "{}");
+  } catch (_error) {
+    exportReadiness = {};
+  }
 
   document.querySelectorAll("form[data-confirm]").forEach((form) => {
     form.addEventListener("submit", (event) => {
@@ -25,6 +32,82 @@
     let pending = false;
     let saveAgain = false;
     const submissionBadge = stepForm.querySelector(".submission-status");
+    const exportWarningDialog = document.getElementById("export-warning-dialog");
+    const exportWarningSummary = document.getElementById("export-warning-summary");
+    const exportMissingSection = document.getElementById("export-missing-section");
+    const exportMissingCount = document.getElementById("export-missing-count");
+    const exportMissingList = document.getElementById("export-missing-list");
+    const exportMissingMore = document.getElementById("export-missing-more");
+    const exportIncompleteSection = document.getElementById("export-incomplete-section");
+    const exportIncompleteCount = document.getElementById("export-incomplete-count");
+    const exportIncompleteList = document.getElementById("export-incomplete-list");
+    const exportIncompleteMore = document.getElementById("export-incomplete-more");
+    const exportWarningCancel = document.getElementById("export-warning-cancel");
+    const exportWarningContinue = document.getElementById("export-warning-continue");
+    let pendingExportUrl = "";
+    const liveExportReadiness = () => {
+      const state = JSON.parse(JSON.stringify(exportReadiness || {}));
+      (state.fields || []).forEach((field) => {
+        const stored = [...document.querySelectorAll("[name]")].find((item) => item.name === field.name);
+        if (!stored) return;
+        const picker = field.picker_name
+          ? [...document.querySelectorAll("[name]")].find((item) => item.name === field.picker_name)
+          : null;
+        const value = picker ? picker.value : stored.value;
+        field.filled = Boolean(String(value || "").trim());
+      });
+      return state;
+    };
+    const renderWarningList = (list, more, items, labelFor) => {
+      list.replaceChildren();
+      items.slice(0, 6).forEach((item) => {
+        const row = document.createElement("li");
+        row.textContent = labelFor(item);
+        list.append(row);
+      });
+      const remaining = items.length - 6;
+      more.textContent = remaining > 0 ? `另有 ${remaining} 項未列出。` : "";
+    };
+    const openExportWarning = (href, state) => {
+      const missing = (state.fields || []).filter((field) => !field.filled);
+      const incomplete = state.incomplete_steps || [];
+      if (!missing.length && !incomplete.length) return false;
+      pendingExportUrl = href;
+      const reasons = [];
+      if (missing.length) reasons.push(`尚有 ${missing.length} 個欄位未填`);
+      if (incomplete.length) reasons.push(`${incomplete.length} 個流程步驟未完成`);
+      exportWarningSummary.textContent = `${reasons.join("，")}。仍可選擇繼續匯出。`;
+      exportMissingSection.hidden = !missing.length;
+      exportMissingCount.textContent = `${missing.length} 項`;
+      renderWarningList(exportMissingList, exportMissingMore, missing, (field) => field.label);
+      exportIncompleteSection.hidden = !incomplete.length;
+      exportIncompleteCount.textContent = `${incomplete.length} 項`;
+      renderWarningList(
+        exportIncompleteList, exportIncompleteMore, incomplete,
+        (item) => `${item.code} · ${item.label}`,
+      );
+      exportWarningDialog.showModal();
+      return true;
+    };
+    document.querySelectorAll("[data-export-link]").forEach((link) => {
+      link.addEventListener("click", (event) => {
+        if (openExportWarning(link.href, liveExportReadiness())) event.preventDefault();
+      });
+    });
+    exportWarningCancel?.addEventListener("click", () => {
+      pendingExportUrl = "";
+      exportWarningDialog.close();
+    });
+    exportWarningContinue?.addEventListener("click", () => {
+      if (!pendingExportUrl) return exportWarningDialog.close();
+      const url = pendingExportUrl;
+      pendingExportUrl = "";
+      exportWarningDialog.close();
+      window.location.assign(url);
+    });
+    exportWarningDialog?.addEventListener("close", () => {
+      if (exportWarningDialog.returnValue !== "continue") pendingExportUrl = "";
+    });
     const intermediateToggle = stepForm.querySelector("[data-intermediate-toggle]");
     const intermediateSubmission = stepForm.querySelector("[data-intermediate-submission]");
     if (intermediateToggle && intermediateSubmission) {
@@ -92,6 +175,7 @@
           const result = await response.json();
           if (!response.ok || !result.ok) throw new Error(result.error || "保存失敗");
           setSaveState("已自動保存", "saved");
+          if (result.export_readiness) exportReadiness = result.export_readiness;
           if (result.submission_state) setSubmissionBadge(result.submission_state);
         } catch (error) {
           setSaveState(error.message || "保存失敗，請按「儲存」", "error");
@@ -208,6 +292,7 @@
           const result = await response.json();
           if (!response.ok || !result.ok) throw new Error(result.error || "建立證據失敗。");
           const evidence = result.evidence;
+          if (result.export_readiness) exportReadiness = result.export_readiness;
           stepForm.querySelectorAll("[data-evidence-select]").forEach((select) => {
             let option = [...select.options].find((item) => item.value === evidence.evidence_id);
             if (!option) {
@@ -321,6 +406,7 @@
           const result = await response.json();
           if (!response.ok || !result.ok) throw new Error(result.error || "保存失敗");
           if (status) status.textContent = "已保存";
+          if (result.export_readiness) exportReadiness = result.export_readiness;
           updateDeadlineCards(result.deadlines, result.deadline_labels, result.awareness?.timezone);
         } catch (error) {
           if (status) status.textContent = error.message || "保存失敗";
