@@ -161,6 +161,11 @@ textarea::placeholder, input::placeholder { color: #a4b0b7; }
 .field-extras label, .evidence-grid label { display: grid; gap: 4px; min-width: 0; }
 .field-extras label > span, .evidence-grid label > span, .awareness-card > label { font-size: 10px; font-weight: 700; color: #627581; }
 .field-extras textarea, .field-extras input { font-size: 11px; }
+.datetime-entry { display: grid; grid-template-columns: minmax(0, 1fr) minmax(170px, .65fr); gap: 9px; }
+.datetime-entry > label { display: grid; gap: 4px; min-width: 0; }
+.datetime-entry > label > span { color: #627581; font-size: 10px; font-weight: 700; }
+.field-hint { display: block; color: #758691; font-size: 10px; line-height: 1.45; margin: 5px 0 0; }
+.field-hint.legacy-value { color: #8a5607; }
 .form-actions { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding-top: 16px; border-top: 1px solid #edf1f3; margin-top: 6px; }
 .action-group { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; justify-content: flex-end; }
 .complete-link { border: 0; background: none; color: var(--green); cursor: pointer; font-size: 10px; padding: 7px; font-weight: 700; }

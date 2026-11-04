@@ -87,9 +87,44 @@
       }, 650);
     };
 
+    const handleAutoSave = (event) => {
+      const field = event.currentTarget;
+      if (field.matches("[data-evidence-select]") && field.value === "__create__") return;
+      const syncTarget = field.dataset.syncTarget;
+      if (syncTarget) {
+        const storedValue = stepForm.elements.namedItem(syncTarget);
+        if (storedValue) {
+          const legacyValue = field.dataset.legacyValue || "";
+          const legacyTargetName = field.dataset.legacyTarget || "";
+          const legacyTarget = legacyTargetName
+            ? stepForm.elements.namedItem(legacyTargetName)
+            : null;
+          if (legacyValue && legacyTarget) {
+            const legacyNote = "原欄位文字：" + legacyValue;
+            if (!legacyTarget.value.includes(legacyNote)) {
+              legacyTarget.value = [legacyTarget.value.trim(), legacyNote].filter(Boolean).join("\n");
+            }
+            field.dataset.legacyValue = "";
+          }
+          const syncZone = field.dataset.syncZone || (
+            syncTarget.endsWith("__obtained_at")
+              ? syncTarget.replace(/obtained_at$/, "timezone")
+              : ""
+          );
+          if (field.value && syncZone) {
+            const zoneField = stepForm.elements.namedItem(syncZone);
+            const defaultTimezone = document.getElementById("awareness-timezone")?.value || "Asia/Taipei";
+            if (zoneField && !zoneField.value.trim()) zoneField.value = defaultTimezone;
+          }
+          storedValue.value = field.value.replace("T", " ");
+        }
+      }
+      queueSave();
+    };
+
     stepForm.querySelectorAll("[data-autosave]").forEach((field) => {
-      field.addEventListener("input", queueSave);
-      field.addEventListener("change", queueSave);
+      field.addEventListener("input", handleAutoSave);
+      field.addEventListener("change", handleAutoSave);
     });
     if (submissionBadge) {
       stepForm.querySelectorAll(".submission-card input, .submission-card select").forEach((field) => {

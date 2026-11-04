@@ -124,7 +124,11 @@ def value_for(case: dict, section: str, field: dict, value_name: str = "entry") 
     row_key = str(field["row"])
     local = case.get("forms", {}).get(section, {}).get(row_key, {})
     if local.get(value_name):
-        return str(local[value_name])
+        value = str(local[value_name])
+        timezone_name = str(local.get("timezone", "")).strip()
+        if value_name == "entry" and timezone_name and not value.endswith(timezone_name):
+            return f"{value} {timezone_name}"
+        return value
     if value_name == "entry":
         shared = case.get("shared_fields", {}).get(shared_field_key(field["label"]))
         if isinstance(shared, dict):

@@ -157,24 +157,52 @@ def _field_value(case: dict, code: str, field: dict, name: str) -> str:
     return ""
 
 
-def _apply_template_fields(case: dict, code: str, values: dict) -> None:
+def _uses_datetime_picker(field: dict) -> bool:
+    label = str(field.get("label", "")).casefold()
+    return (
+        any(marker in label for marker in ("時間", "日期"))
+        or bool(re.search(r"\b(date|time|timestamp|deadline)\b", label))
+    )
+
+
+def _datetime_local_value(value: object) -> str:
+    """Convert a stored local timestamp to the browser datetime-local format."""
+    raw = str(value or "").strip()
+    match = re.fullmatch(
+        r"(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})(?::\d{2})?", raw
+    )
+    return f"{match.group(1)}T{match.group(2)}" if match else ""
+
+
+def _apply_template_fields(
+    case: dict, code: str, values: dict, allowed_rows: tuple[int, ...] | None = None,
+) -> None:
     section = case.setdefault("forms", {}).setdefault(code, {})
     shared_fields = case.setdefault("shared_fields", {})
+    allowed = set(allowed_rows) if allowed_rows is not None else None
     for field in SCHEMA.get(code, []):
         row = str(field["row"])
+        if allowed is not None and int(row) not in allowed:
+            continue
         label = field["label"]
-        special_time = code == "D4" and any(
-            marker in label.casefold() for marker in ("awareness time", "24h", "72h")
-        )
+        special_time = code == "D4" and int(row) in {19, 20, 21}
         if special_time:
             continue
         current = dict(section.get(row, {}))
         changed = False
         for part in ("entry", "note", "evidence_id"):
-            name = f"field__{row}__{part}"
-            if name in values:
-                current[part] = str(values.get(name, "")).strip()
+            name = f"field__{code}__{row}__{part}"
+            legacy_name = f"field__{row}__{part}"
+            if name in values or legacy_name in values:
+                current[part] = str(values.get(name, values.get(legacy_name, ""))).strip()
                 changed = True
+        timezone_name = f"field__{code}__{row}__timezone"
+        legacy_timezone_name = f"field__{row}__timezone"
+        if timezone_name in values or legacy_timezone_name in values:
+            current["timezone"] = str(
+                values.get(timezone_name, values.get(legacy_timezone_name, ""))
+            ).strip()
+            changed = True
         if changed:
             section[row] = current
         entry = section.get(row, {}).get("entry", "").strip()
@@ -193,7 +221,6 @@ def _apply_template_fields(case: dict, code: str, values: dict) -> None:
             case["title"] = entry
         if shared_field_key(label) == "case_id" and entry:
             case["case_number"] = entry
-
 
 def _apply_evidence(case: dict, values: dict) -> None:
     metadata = case.setdefault("evidence_meta", {})
