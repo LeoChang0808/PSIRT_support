@@ -45,6 +45,17 @@ STEP_TITLES = {
     "7.8": "後續追蹤與 CSIRT 中間報告",
     "7.9": "最終報告、期限確認與歸檔",
 }
+STEP_SHORT_TITLES = {
+    "7.1": "收案",
+    "7.2": "產品適用",
+    "7.3": "通報判定",
+    "7.4": "期限管理",
+    "7.5": "24h 預警",
+    "7.6": "72h 通報",
+    "7.7": "使用者通知",
+    "7.8": "中間報告",
+    "7.9": "最終結案",
+}
 STEP_HELP = {
     "7.1": "登錄來源、首次接收時間、初始描述、產品線索與承辦人；收案時間不自動等同 Awareness Time。",
     "7.2": "確認產品、版本、數位元素、歐盟市場與 CRA 適用性，補充影響產品及使用者範圍。",
@@ -578,6 +589,7 @@ def _render_case(case: dict, step: str):
         step=step,
         step_order=STEP_ORDER,
         step_titles=STEP_TITLES,
+        step_short_titles=STEP_SHORT_TITLES,
         step_help=STEP_HELP,
         step_index=STEP_ORDER.index(step),
         fields=_render_fields(case, step),

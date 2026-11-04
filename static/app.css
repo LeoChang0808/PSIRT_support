@@ -137,8 +137,9 @@ h3 { font-size: 15px; margin-bottom: 5px; }
 .download-popover { position: absolute; z-index: 5; right: 0; top: calc(100% + 6px); min-width: 170px; padding: 6px; border: 1px solid var(--line); border-radius: 9px; background: white; box-shadow: 0 12px 28px #0c23301a; }
 .download-popover a { display: block; border-radius: 6px; padding: 7px 9px; font-size: 11px; }
 .download-popover a:hover { background: var(--teal-soft); color: var(--teal-dark); }
-.step-progress { display: grid; grid-template-columns: repeat(9, minmax(65px, 1fr)); gap: 5px; margin: 0 0 18px; overflow-x: auto; padding: 2px 1px 7px; }
-.progress-step { min-width: 72px; display: flex; align-items: center; gap: 7px; padding: 7px 8px; color: #7a8992; border-radius: 8px; font-size: 10px; white-space: nowrap; }
+.step-progress { display: grid; grid-template-columns: repeat(9, minmax(0, 1fr)); gap: 5px; margin: 0 0 18px; overflow-x: auto; padding: 2px 1px 7px; }
+.progress-step { min-width: 0; display: flex; align-items: center; gap: 6px; padding: 7px 6px; color: #7a8992; border-radius: 8px; font-size: 10px; white-space: nowrap; }
+.progress-step-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .progress-step.active { background: var(--blue-soft); color: #1e4f9c; font-weight: 700; }
 .progress-step.done { color: var(--green); }
 .progress-step.done.active { background: var(--green-soft); }

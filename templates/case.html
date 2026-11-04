@@ -41,9 +41,10 @@
   {% for item in step_order %}
     {% set status = case.steps.get(item, "not_started") %}
     <a class="progress-step {% if item == step %}active{% endif %} {% if status == 'completed' %}done{% endif %}"
+       aria-label="{{ item }} {{ step_titles[item] }}" title="{{ item }} {{ step_titles[item] }}"
        href="{{ url_for('case_page', case_id=case.id, step=item) }}">
       <span class="progress-number">{% if status == "completed" %}✓{% else %}{{ loop.index }}{% endif %}</span>
-      <span>{{ step_titles[item] }}</span>
+      <span class="progress-step-label">{{ step_short_titles[item] }}</span>
     </a>
   {% endfor %}
 </div>
