@@ -14,7 +14,10 @@ from flask import (
     request, send_file, session, url_for,
 )
 
-from forms import D7_TEMPLATE_FILE, TEMPLATE_FILES, load_form_schema, shared_field_key
+from forms import (
+    D7_TEMPLATE_FILE, TEMPLATE_FILES, evidence_references, load_form_schema,
+    shared_field_key,
+)
 from report_pdf import STAGE_LABELS, build_srp_pdf
 from storage import EncryptedCaseStore
 from submission import current_submission, submission_key, submission_state
@@ -229,12 +232,19 @@ def _apply_evidence(case: dict, values: dict) -> None:
             metadata[key] = str(values.get(f"evidence_meta__{key}", "")).strip()
     review = metadata.setdefault("review", {})
     for row, _label in D7_REVIEW_FIELDS:
-        key = f"d7_review__{row}"
-        if key in values:
-            review[str(row)] = str(values.get(key, "")).strip()
+        if row == 43:
+            for suffix, target in (("details", "43_details"), ("at", "43_at"),
+                                   ("timezone", "43_timezone")):
+                key = f"d7_review__43_{suffix}"
+                if key in values:
+                    review[target] = str(values.get(key, "")).strip()
+        else:
+            key = f"d7_review__{row}"
+            if key in values:
+                review[str(row)] = str(values.get(key, "")).strip()
 
     grouped: dict[int, dict] = {}
-    pattern = re.compile(r"evidence__(\d+)__(evidence_id|obtained_at|kind|description|source|location|custodian|step)")
+    pattern = re.compile(r"evidence__(\d+)__(evidence_id|obtained_at|timezone|kind|description|source|location|custodian)")
     for name, value in values.items():
         match = pattern.fullmatch(name)
         if match:
@@ -399,6 +409,23 @@ def _render_case(case: dict, step: str):
         "24": deadline_display(case, 24),
         "72": deadline_display(case, 72),
     }
+    references_by_id = evidence_references(case, SCHEMA)
+    evidence_items = []
+    for item in case.get("evidence", []):
+        obtained_at = str(item.get("obtained_at", ""))
+        picker_value = _datetime_local_value(obtained_at)
+        references = references_by_id.get(str(item.get("evidence_id", "")), [])
+        evidence_items.append({
+            **item,
+            "obtained_at_picker": picker_value,
+            "legacy_obtained_at": (
+                obtained_at if obtained_at and not picker_value else ""
+            ),
+            "timezone": item.get("timezone") or awareness.get("timezone", "Asia/Taipei"),
+            "references": references,
+            "can_remove": not references,
+        })
+    submission_record = _submission_for_step(case, step)
     return render_template(
         "case.html",
         case=case,
@@ -409,13 +436,22 @@ def _render_case(case: dict, step: str):
         step_index=STEP_ORDER.index(step),
         fields=_render_fields(case, step),
         template_files=TEMPLATE_FILES,
+        form_titles=FORM_TITLES,
+        final_export_ready=_all_steps_completed(case),
+        step_count=len(STEP_ORDER),
         csrf_token=session["csrf_token"],
         current_deadlines=current_deadlines,
         deadline_labels=deadline_labels,
         awareness=awareness,
-        current_submission=current_submission(case),
+        evidence_items=evidence_items,
+        evidence_references=references_by_id,
+        evidence_ids={str(item.get("evidence_id", "")) for item in case.get("evidence", [])},
+        review_43_datetime=_datetime_local_value(
+            case.get("evidence_meta", {}).get("review", {}).get("43_at", "")
+        ),
+        current_submission=submission_record,
         current_submission_state=submission_state(
-            current_submission(case), case.get("evidence", [])
+            submission_record, case.get("evidence", [])
         ),
         srp_mapping=build_srp_fields(case, SCHEMA),
         enisa_glossary_updated=ENISA_GLOSSARY_UPDATED,

@@ -139,3 +139,21 @@ def value_for(case: dict, section: str, field: dict, value_name: str = "entry") 
             return str(case.get("case_number", ""))
     return ""
 
+
+def evidence_references(
+    case: dict, schema: dict[str, list[dict]],
+) -> dict[str, list[str]]:
+    """Derive D7 evidence usage from Evidence IDs selected in D1-D6 fields."""
+    references: dict[str, list[str]] = {}
+    for code, fields in schema.items():
+        if code not in {"D1", "D2", "D3", "D4", "D5", "D6"}:
+            continue
+        for field in fields:
+            stored = case.get("forms", {}).get(code, {}).get(str(field["row"]), {})
+            evidence_id = str(stored.get("evidence_id", "")).strip()
+            if evidence_id:
+                references.setdefault(evidence_id, []).append(
+                    f"{code} · {field['label']}"
+                )
+    return references
+

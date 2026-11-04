@@ -10,7 +10,8 @@ from zipfile import ZIP_DEFLATED, ZipFile
 from xml.etree import ElementTree as ET
 
 from forms import (
-    D7_TEMPLATE_FILE, NS, TEMPLATE_FILES, _form_sheet_path, _shared_strings, value_for,
+    D7_TEMPLATE_FILE, NS, TEMPLATE_FILES, _form_sheet_path, _shared_strings,
+    evidence_references, value_for,
 )
 from time_utils import awareness_datetime, deadline_display
 from submission import all_submissions, format_report_time, submission_state
@@ -289,24 +290,44 @@ def build_xlsx(
         else:
             evidence_meta = case.get("evidence_meta", {})
             evidence_rows = case.get("evidence", [])
+            references_by_id = evidence_references(case, schema)
             _set_text(sheet_data, "D6", case.get("case_number", ""))
             _set_text(sheet_data, "D7", case.get("title", ""))
             _set_text(sheet_data, "D8", evidence_meta.get("custodian", ""))
             _set_text(sheet_data, "D9", evidence_meta.get("location", ""))
             _set_text(sheet_data, "D10", case.get("updated_local", ""))
-            for row, value in evidence_meta.get("review", {}).items():
-                _set_text(sheet_data, f"D{int(row)}", value)
+            review = evidence_meta.get("review", {})
+            for row in range(35, 44):
+                value = review.get(str(row), "")
+                if row == 43:
+                    details = review.get("43_details", value)
+                    review_time = review.get("43_at", "")
+                    review_timezone = review.get("43_timezone", "")
+                    timestamp = " ".join(
+                        item for item in (review_time, review_timezone) if item
+                    )
+                    value = "；".join(item for item in (details, timestamp) if item)
+                if value:
+                    _set_text(sheet_data, f"D{row}", value)
             capacity = 21
             if len(evidence_rows) > capacity:
                 _shift_rows(sheet, 34, len(evidence_rows) - capacity)
                 sheet_data = sheet.find(".//m:sheetData", NS)
+            _set_text(sheet_data, "H12", "引用欄位")
             for index, evidence in enumerate(evidence_rows):
                 row = 13 + index
                 for column, key in zip(
                     "ABCDEFGH",
                     ("evidence_id", "obtained_at", "kind", "description",
-                     "source", "location", "custodian", "step"),
+                     "source", "location", "custodian", "references"),
                 ):
-                    _set_text(sheet_data, f"{column}{row}", evidence.get(key, ""))
+                    value = "；".join(
+                        references_by_id.get(str(evidence.get("evidence_id", "")), [])
+                    ) if key == "references" else evidence.get(key, "")
+                    if key == "obtained_at" and evidence.get("timezone"):
+                        timezone_name = str(evidence.get("timezone", "")).strip()
+                        if timezone_name and not str(value).endswith(timezone_name):
+                            value = f"{value} {timezone_name}".strip()
+                    _set_text(sheet_data, f"{column}{row}", value)
     return _replace_sheet(template_path, path, sheet)
 

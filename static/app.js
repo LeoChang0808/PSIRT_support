@@ -238,83 +238,44 @@
     });
 
     const evidenceList = document.getElementById("evidence-list");
-    const addEvidence = document.getElementById("add-evidence");
-    if (evidenceList && addEvidence) {
+    if (evidenceList) {
       const renumberEvidence = () => {
-        [...evidenceList.querySelectorAll(".evidence-card")].forEach((card, index) => {
+        [...evidenceList.querySelectorAll(".evidence-list-item")].forEach((card, index) => {
           card.dataset.evidenceRow = String(index);
-          const title = card.querySelector(".evidence-card-title strong");
-          if (title) title.textContent = "Evidence " + (index + 1);
+          const number = card.querySelector(".evidence-number");
+          if (number) number.textContent = String(index + 1);
           card.querySelectorAll("[name]").forEach((field) => {
             field.name = field.name.replace(/evidence__\d+__/, "evidence__" + index + "__");
           });
+          card.querySelectorAll("[data-sync-target], [data-legacy-target]").forEach((field) => {
+            if (field.dataset.syncTarget) {
+              field.dataset.syncTarget = field.dataset.syncTarget.replace(
+                /evidence__\d+__/, "evidence__" + index + "__",
+              );
+            }
+            if (field.dataset.legacyTarget) {
+              field.dataset.legacyTarget = field.dataset.legacyTarget.replace(
+                /evidence__\d+__/, "evidence__" + index + "__",
+              );
+            }
+          });
         });
       };
-
-      const makeLabel = (caption, name, placeholder = "") => {
-        const label = document.createElement("label");
-        const span = document.createElement("span");
-        span.textContent = caption;
-        const input = document.createElement("input");
-        input.name = name;
-        input.placeholder = placeholder;
-        input.dataset.autosave = "";
-        input.addEventListener("input", queueSave);
-        input.addEventListener("change", queueSave);
-        label.append(span, input);
-        return label;
-      };
-
-      addEvidence.addEventListener("click", () => {
-        const index = evidenceList.querySelectorAll(".evidence-card").length;
-        const card = document.createElement("article");
-        card.className = "evidence-card";
-        card.dataset.evidenceRow = String(index);
-        const heading = document.createElement("div");
-        heading.className = "evidence-card-title";
-        const strong = document.createElement("strong");
-        strong.textContent = "Evidence " + (index + 1);
-        const remove = document.createElement("button");
-        remove.type = "button";
-        remove.className = "remove-evidence";
-        remove.textContent = "移除";
-        heading.append(strong, remove);
-
-        const grid = document.createElement("div");
-        grid.className = "evidence-grid";
-        grid.append(
-          makeLabel("Evidence ID", "evidence__" + index + "__evidence_id", "EV-001"),
-          makeLabel("取得時間／時區", "evidence__" + index + "__obtained_at"),
-          makeLabel("證據類型", "evidence__" + index + "__kind", "例如 PoC、日誌"),
-        );
-        const description = document.createElement("label");
-        description.className = "wide";
-        const descriptionTitle = document.createElement("span");
-        descriptionTitle.textContent = "內容描述";
-        const descriptionInput = document.createElement("textarea");
-        descriptionInput.name = "evidence__" + index + "__description";
-        descriptionInput.rows = 2;
-        descriptionInput.dataset.autosave = "";
-        descriptionInput.addEventListener("input", queueSave);
-        descriptionInput.addEventListener("change", queueSave);
-        description.append(descriptionTitle, descriptionInput);
-        grid.append(
-          description,
-          makeLabel("來源", "evidence__" + index + "__source"),
-          makeLabel("受控保存位置", "evidence__" + index + "__location"),
-          makeLabel("保管人", "evidence__" + index + "__custodian"),
-          makeLabel("關聯步驟", "evidence__" + index + "__step", "D3、D5…"),
-        );
-        card.append(heading, grid);
-        evidenceList.append(card);
-        queueSave();
-      });
-
       evidenceList.addEventListener("click", (event) => {
         const remove = event.target.closest(".remove-evidence");
         if (!remove) return;
-        remove.closest(".evidence-card")?.remove();
+        remove.closest(".evidence-list-item")?.remove();
         renumberEvidence();
+        if (!evidenceList.querySelector(".evidence-list-item")) {
+          const empty = document.createElement("li");
+          empty.className = "empty-inline evidence-empty";
+          const title = document.createElement("strong");
+          title.textContent = "尚無證據紀錄";
+          const hint = document.createElement("p");
+          hint.textContent = "請回到 D1–D6 任一 Evidence ID 下拉選單，選擇「建立證據」。";
+          empty.append(title, hint);
+          evidenceList.append(empty);
+        }
         queueSave();
       });
     }

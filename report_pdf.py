@@ -27,6 +27,7 @@ from srp_fields import (
     build_srp_fields,
 )
 from submission import current_submission, format_report_time, submission_state
+from forms import evidence_references
 
 STAGE_LABELS = {
     "EW": "Early Warning（24 小時）",
@@ -208,17 +209,25 @@ def build_srp_pdf(case: dict, schema: dict[str, list[dict]]) -> bytes:
 
     evidence = case.get("evidence", [])
     if evidence:
+        references_by_id = evidence_references(case, schema)
         story.append(_p("D7 證據索引", heading))
         evidence_rows = [[_p(name, cell) for name in
-                          ("Evidence ID", "類型／描述", "來源／位置", "保管人／步驟")]]
+                          ("Evidence ID", "取得時間／時區", "類型／描述", "來源／位置", "保管人／引用欄位")]]
         for item in evidence:
+            obtained_at = " ".join(value for value in (
+                item.get("obtained_at", ""), item.get("timezone", "")
+            ) if value)
             evidence_rows.append([
                 _p(item.get("evidence_id", ""), cell),
+                _p(obtained_at, cell),
                 _p("／".join(x for x in (item.get("kind", ""), item.get("description", "")) if x), cell),
                 _p("／".join(x for x in (item.get("source", ""), item.get("location", "")) if x), cell),
-                _p("／".join(x for x in (item.get("custodian", ""), item.get("step", "")) if x), cell),
+                _p("／".join(x for x in (
+                    item.get("custodian", ""),
+                    "；".join(references_by_id.get(str(item.get("evidence_id", "")), [])),
+                ) if x), cell),
             ])
-        evidence_table = Table(evidence_rows, colWidths=[32 * mm, 55 * mm, 55 * mm, 35 * mm], repeatRows=1)
+        evidence_table = Table(evidence_rows, colWidths=[24 * mm, 27 * mm, 43 * mm, 43 * mm, 35 * mm], repeatRows=1)
         evidence_table.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e2e8f0")),
             ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#cbd5e1")),
@@ -241,6 +250,12 @@ def build_srp_pdf(case: dict, schema: dict[str, list[dict]]) -> bytes:
     review_rows = [[_p("D7 品質／結案核對", cell), _p("記錄", cell)]]
     for row, label in review_labels.items():
         value = review.get(row, "")
+        if row == "43":
+            details = review.get("43_details", value)
+            review_time = " ".join(item for item in (
+                review.get("43_at", ""), review.get("43_timezone", "")
+            ) if item)
+            value = "；".join(item for item in (details, review_time) if item)
         if value:
             review_rows.append([_p(label, cell), _p(value, cell)])
     if len(review_rows) > 1:

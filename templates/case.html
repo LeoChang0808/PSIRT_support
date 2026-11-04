@@ -208,36 +208,86 @@
           </div>
         </article>
         <div class="evidence-header">
-          <div><h3>證據索引</h3><p>每筆證據應有唯一 Evidence ID。</p></div>
-          <button class="button secondary small" type="button" id="add-evidence">＋ 新增證據</button>
+          <div><h3>證據索引與結案</h3><p>以下列出前面步驟已建立並選用的 Evidence ID；點選項目可檢視或編輯，引用欄位依 D1–D6 的選擇自動整理。</p></div>
         </div>
-        <div id="evidence-list" class="evidence-list">
-          {% set evidence_items = case.evidence if case.evidence else [{}] %}
-          {% for item in evidence_items %}
-            <article class="evidence-card" data-evidence-row="{{ loop.index0 }}">
-              <div class="evidence-card-title"><strong>Evidence {{ loop.index }}</strong><button type="button" class="remove-evidence" aria-label="移除此列">移除</button></div>
-              <div class="evidence-grid">
-                <label><span>Evidence ID</span><input name="evidence__{{ loop.index0 }}__evidence_id" value="{{ item.get('evidence_id','') }}" placeholder="EV-001" data-autosave></label>
-                <label><span>取得時間／時區</span><input name="evidence__{{ loop.index0 }}__obtained_at" value="{{ item.get('obtained_at','') }}" placeholder="日期與時區" data-autosave></label>
-                <label><span>證據類型</span><input name="evidence__{{ loop.index0 }}__kind" value="{{ item.get('kind','') }}" placeholder="例如 PoC、日誌" data-autosave></label>
-                <label class="wide"><span>內容描述</span><textarea name="evidence__{{ loop.index0 }}__description" rows="2" data-autosave>{{ item.get('description','') }}</textarea></label>
-                <label><span>來源</span><input name="evidence__{{ loop.index0 }}__source" value="{{ item.get('source','') }}" data-autosave></label>
-                <label><span>受控保存位置</span><input name="evidence__{{ loop.index0 }}__location" value="{{ item.get('location','') }}" data-autosave></label>
-                <label><span>保管人</span><input name="evidence__{{ loop.index0 }}__custodian" value="{{ item.get('custodian','') }}" data-autosave></label>
-                <label><span>關聯步驟</span><input name="evidence__{{ loop.index0 }}__step" value="{{ item.get('step','') }}" placeholder="D3、D5…" data-autosave></label>
-              </div>
-            </article>
+        <ul id="evidence-list" class="evidence-list">
+          {% if not evidence_items %}
+            <li class="empty-inline evidence-empty">
+              <strong>尚無證據紀錄</strong>
+              <p>請回到前面步驟的 Evidence ID 下拉選單，選擇「建立證據」。建立後會自動出現在此結案清單。</p>
+            </li>
+          {% endif %}
+          {% set evidence_rows = evidence_items %}
+          {% for item in evidence_rows %}
+            <li class="evidence-list-item" data-evidence-row="{{ loop.index0 }}">
+              <details class="evidence-record">
+                <summary class="evidence-summary">
+                  <span class="evidence-number">{{ loop.index }}</span>
+                  <span class="evidence-summary-copy">
+                    <strong>{{ item.get('evidence_id','Evidence ' ~ loop.index) }}</strong>
+                    <small>{{ item.get('kind') or '證據紀錄' }}{% if item.get('obtained_at') %} · {{ item.get('obtained_at') }}{% endif %}</small>
+                  </span>
+                  <span class="evidence-summary-meta">
+                    {% if item.get('references') %}<span class="reference-pill">引用 {{ item.get('references', [])|length }} 個欄位</span>
+                    {% else %}<span class="reference-pill unreferenced">尚未引用</span>{% endif %}
+                    <span class="evidence-expand-label">檢視／編輯⌄</span>
+                  </span>
+                </summary>
+                <div class="evidence-record-content">
+                  <div class="evidence-grid">
+                    <input type="hidden" name="evidence__{{ loop.index0 }}__evidence_id" value="{{ item.get('evidence_id','') }}">
+                    <label><span>Evidence ID</span><input value="{{ item.get('evidence_id','') }}" readonly></label>
+                    <label class="wide"><span>取得時間</span>
+                      <input type="hidden" name="evidence__{{ loop.index0 }}__obtained_at" value="{{ item.get('obtained_at','') }}">
+                      <input type="datetime-local" name="evidence__{{ loop.index0 }}__obtained_at_picker"
+                             value="{{ item.get('obtained_at_picker','') }}"
+                             data-sync-target="evidence__{{ loop.index0 }}__obtained_at"
+                             data-legacy-value="{{ item.get('legacy_obtained_at','') }}"
+                             data-legacy-target="evidence__{{ loop.index0 }}__description" data-autosave>
+                      {% if item.get('legacy_obtained_at') %}<small class="field-hint legacy-value">原有文字已保留：{{ item.get('legacy_obtained_at') }}；選擇新時間時會移至內容描述。</small>{% endif %}
+                    </label>
+                    <label><span>時區</span><input name="evidence__{{ loop.index0 }}__timezone" value="{{ item.get('timezone','') }}" placeholder="{{ awareness.timezone or 'Asia/Taipei' }}" data-autosave></label>
+                    <label><span>證據類型</span><input name="evidence__{{ loop.index0 }}__kind" value="{{ item.get('kind','') }}" placeholder="例如 PoC、日誌" data-autosave></label>
+                    <label class="wide"><span>內容描述</span><textarea name="evidence__{{ loop.index0 }}__description" rows="2" data-autosave>{{ item.get('description','') }}</textarea></label>
+                    <label><span>來源</span><input name="evidence__{{ loop.index0 }}__source" value="{{ item.get('source','') }}" data-autosave></label>
+                    <label><span>受控保存位置</span><input name="evidence__{{ loop.index0 }}__location" value="{{ item.get('location','') }}" data-autosave></label>
+                    <label><span>保管人</span><input name="evidence__{{ loop.index0 }}__custodian" value="{{ item.get('custodian','') }}" data-autosave></label>
+                    <div class="wide"><span class="evidence-ref-label">引用欄位</span>
+                      {% if item.get('references') %}
+                        <div class="evidence-reference-list">{% for reference in item.get('references') %}<span>{{ reference }}</span>{% endfor %}</div>
+                      {% else %}<small class="field-hint">尚未在 D1–D6 欄位選用</small>{% endif %}
+                    </div>
+                  </div>
+                </div>
+              </details>
+              {% if item.get('can_remove') %}<button type="button" class="remove-evidence" aria-label="移除 {{ item.get('evidence_id','') }}">移除</button>{% endif %}
+            </li>
           {% endfor %}
-        </div>
+        </ul>
         <div class="evidence-header review-heading">
           <div><h3>證據品質與結案核對</h3><p>只記錄核對結果；最終覆核仍由權責人員負責。</p></div>
         </div>
         <div class="review-fields">
           {% for row, label in d7_review_fields %}
-            <label class="review-field">
-              <span>{{ label }}</span>
-              <textarea name="d7_review__{{ row }}" rows="2" data-autosave>{{ case.evidence_meta.review.get(row|string, '') }}</textarea>
-            </label>
+            {% if row == 43 %}
+              <label class="review-field">
+                <span>保管單位／複核人與補充資訊</span>
+                <textarea name="d7_review__43_details" rows="2" data-autosave>{{ case.evidence_meta.review.get('43_details', case.evidence_meta.review.get('43', '')) }}</textarea>
+              </label>
+              <label class="review-field">
+                <span>複核時間</span>
+                <input type="datetime-local" name="d7_review__43_at" value="{{ review_43_datetime }}" data-sync-zone="d7_review__43_timezone" data-autosave>
+              </label>
+              <label class="review-field">
+                <span>複核時區</span>
+                <input name="d7_review__43_timezone" value="{{ case.evidence_meta.review.get('43_timezone', '') }}" placeholder="{{ awareness.timezone or 'Asia/Taipei' }}" data-autosave>
+              </label>
+            {% else %}
+              <label class="review-field">
+                <span>{{ label }}</span>
+                <textarea name="d7_review__{{ row }}" rows="2" data-autosave>{{ case.evidence_meta.review.get(row|string, '') }}</textarea>
+              </label>
+            {% endif %}
           {% endfor %}
         </div>
       {% endif %}
