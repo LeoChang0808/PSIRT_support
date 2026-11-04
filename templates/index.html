@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}案件 | PSIRT CRA 輔助填寫平台{% endblock %}
+{% block content %}
+<section class="hero">
+  <div>
+    <p class="eyebrow">LOCAL CASE WORKSPACE</p>
+    <h1>CRA 通報案件</h1>
+    <p class="hero-copy">逐步整理 D1–D7 資料、追蹤知悉後期限，並匯出 SRP 人工填寫參考資料。</p>
+  </div>
+  <form action="{{ url_for('create_case') }}" method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <button class="button primary large" type="submit"><span aria-hidden="true">＋</span> 建立案件</button>
+  </form>
+</section>
+
+{% if schema_missing %}
+<div class="notice warning">
+  <strong>部分 XLSX 範本讀取不到</strong>
+  <p>請確認本平台資料夾的上一層仍有原始 D1–D7 範本。匯出功能需要這些範本。</p>
+</div>
+{% endif %}
+
+<section class="section-heading">
+  <div><h2>案件清單</h2><p>案件內容保存在本機加密資料庫。</p></div>
+  <span class="count-pill">{{ cases|length }} 件</span>
+</section>
+
+{% if cases %}
+  <div class="case-list">
+    {% for item in cases %}
+      <a class="case-card" href="{{ url_for('case_page', case_id=item.id) }}">
+        <div class="case-card-main">
+          <span class="case-id">{{ item.case_number }}</span>
+          <h3>{{ item.title or "未命名案件" }}</h3>
+          <p>目前步驟：{{ item.current_step }} · {{ item.updated_local }}</p>
+        </div>
+        <div class="case-card-side">
+          <span class="progress-chip">{{ item.steps.values()|select('equalto', 'completed')|list|length }}/8 步完成</span>
+          <span class="arrow" aria-hidden="true">→</span>
+        </div>
+      </a>
+    {% endfor %}
+  </div>
+{% else %}
+  <div class="empty-state">
+    <div class="empty-icon">＋</div>
+    <h3>還沒有案件</h3>
+    <p>建立案件後，系統會依序引導填寫 D2、D1、D3、D4、SRP、D5、D6 與 D7。</p>
+    <form action="{{ url_for('create_case') }}" method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button class="button secondary" type="submit">建立第一個案件</button>
+    </form>
+  </div>
+{% endif %}
+
+<div class="bottom-note">
+  <span class="note-icon">i</span>
+  <p>系統不會替你判定通報分類，也不會連線、輸入或提交 SRP。匯出的 PDF 是內部草稿，需由 SRP AR 核對。</p>
+</div>
+{% endblock %}

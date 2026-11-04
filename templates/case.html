@@ -1,0 +1,323 @@
+{% extends "base.html" %}
+{% block title %}{{ case.case_number }} | PSIRT CRA 輔助填寫平台{% endblock %}
+{% block content %}
+<nav class="breadcrumbs" aria-label="頁面位置">
+  <a href="{{ url_for('index') }}">案件清單</a><span>/</span><span>{{ case.case_number }}</span>
+</nav>
+
+<section class="case-header">
+  <div>
+    <p class="eyebrow">CASE WORKSPACE</p>
+    <h1>{{ case.title or "未命名案件" }}</h1>
+    <div class="case-meta">
+      <span class="case-id">{{ case.case_number }}</span>
+      <span>最後保存 {{ case.updated_local }}</span>
+      <span class="save-indicator" id="save-indicator" aria-live="polite">已保存</span>
+    </div>
+  </div>
+  <div class="export-actions">
+    <a class="button primary" href="{{ url_for('export_bundle', case_id=case.id) }}">匯出 7 份表單＋SRP PDF</a>
+    <a class="button secondary" href="{{ url_for('report_pdf', case_id=case.id) }}">只匯出 SRP PDF</a>
+    <details class="download-menu">
+      <summary>個別下載</summary>
+      <div class="download-popover">
+        {% for code in ("D1", "D2", "D3", "D4", "D5", "D6", "D7") %}
+          <a href="{{ url_for('export_xlsx', case_id=case.id, code=code) }}">{{ code }} 表單 XLSX</a>
+        {% endfor %}
+      </div>
+    </details>
+  </div>
+</section>
+
+{% if schema_missing %}
+<div class="notice warning compact">
+  <strong>範本尚未完整載入</strong>
+  <p>請確認上一層資料夾保留原始 D1–D7 XLSX 範本。</p>
+</div>
+{% endif %}
+
+<div class="step-progress" aria-label="案件步驟">
+  {% for item in step_order %}
+    {% set status = case.steps.get(item, "not_started") %}
+    <a class="progress-step {% if item == step %}active{% endif %} {% if status == 'completed' %}done{% endif %}"
+       href="{{ url_for('case_page', case_id=case.id, step=item) }}">
+      <span class="progress-number">{% if status == "completed" %}✓{% else %}{{ loop.index }}{% endif %}</span>
+      <span>{{ step_titles[item] }}</span>
+    </a>
+  {% endfor %}
+</div>
+
+<div class="workspace-grid">
+  <section class="panel form-panel">
+    <div class="panel-heading">
+      <div>
+        <p class="eyebrow">步驟 {{ step_index + 1 }} / {{ step_order|length }}</p>
+        <h2>{{ step }} · {{ step_titles[step] }}</h2>
+        <p class="muted">{{ step_help[step] }}</p>
+      </div>
+      <span class="step-state {% if case.steps.get(step) == 'completed' %}state-complete{% elif case.steps.get(step) == 'in_progress' %}state-progress{% endif %}">
+        {% if case.steps.get(step) == "completed" %}已完成{% elif case.steps.get(step) == "in_progress" %}填寫中{% else %}待填{% endif %}
+      </span>
+    </div>
+
+    <form id="step-form" class="step-form" method="post"
+          action="{{ url_for('save_step', case_id=case.id, step=step) }}"
+          data-case-id="{{ case.id }}" data-step="{{ step }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="intent" value="save" id="form-intent">
+
+      {% if step in ("D1", "D2", "D3", "D4", "D5", "D6") %}
+        {% if step == "D4" %}
+          <div class="notice info">
+            <strong>知悉時間與 24／72 小時期限</strong>
+            <p>請在右側設定經核准的 Awareness Time。系統會以同一時間計算 24 小時與 72 小時截止，並同步輸出到 D4。</p>
+          </div>
+        {% endif %}
+        {% if step == "D5" %}
+          <div class="notice info">
+            <strong>{{ case.srp.type }} · {{ stage_labels.get(case.srp.stage, case.srp.stage) }}</strong>
+            <p>記錄 SRP 欄位輸入完成時間與人員回報的正式提交時間。提交紀錄須有時間、參考號及連結至 D7 的回執 Evidence ID 才會標示齊備；平台不核驗 SRP 狀態或回執真偽。</p>
+          </div>
+          <article class="field-card submission-card">
+            <div class="field-title"><span class="field-number">SRP</span><label>人工填寫與提交狀態</label></div>
+            <div class="submission-grid">
+              <label><span>SRP 欄位輸入完成時間</span><input type="datetime-local" name="srp_entry_completed_at" value="{{ current_submission.get('entry_completed_at','') }}" data-autosave></label>
+              <label><span>填寫時間時區</span><input name="srp_entry_timezone" value="{{ current_submission.get('entry_timezone','Asia/Taipei') }}" data-autosave></label>
+              <label class="wide"><span>平台狀態</span>
+                <select name="srp_submission_status" data-autosave>
+                  <option value="not_submitted" {% if current_submission.get('submission_status','not_submitted') == 'not_submitted' %}selected{% endif %}>欄位已填／草稿，尚未正式提交</option>
+                  <option value="submitted_unverified" {% if current_submission.get('submission_status') == 'submitted_unverified' %}selected{% endif %}>人員回報已提交，等待證據核對</option>
+                </select>
+              </label>
+              <label><span>平台正式提交時間</span><input type="datetime-local" name="srp_submitted_at" value="{{ current_submission.get('submitted_at','') }}" data-autosave></label>
+              <label><span>提交時間時區</span><input name="srp_submitted_timezone" value="{{ current_submission.get('submitted_timezone','Asia/Taipei') }}" data-autosave></label>
+              <label><span>SRP 案件參考號</span><input name="srp_reference_number" value="{{ current_submission.get('reference_number','') }}" data-autosave></label>
+              <label><span>提交回執 D7 Evidence ID</span><input name="srp_receipt_evidence_id" value="{{ current_submission.get('receipt_evidence_id','') }}" placeholder="先將回執登錄至 D7" data-autosave></label>
+            </div>
+            <div class="submission-status {{ current_submission_state.key }}">
+              <span class="status-dot"></span><strong>{{ current_submission_state.label }}</strong>
+            </div>
+          </article>
+        {% endif %}
+        {% for field in fields %}
+          <article class="field-card">
+            <div class="field-title">
+              <span class="field-number">{{ field.number }}</span>
+              <label for="field-{{ field.row }}">{{ field.label }}</label>
+              {% if field.reused %}<span class="reuse-tag">已帶入 {{ field.reuse_source }} · {{ field.reuse_updated }}</span>{% endif %}
+              {% if field.stale %}<span class="stale-tag">前次填寫與最新共用值不同，請覆核</span>{% endif %}
+            </div>
+            <textarea id="field-{{ field.row }}" name="field__{{ field.row }}__entry"
+                      rows="2" placeholder="輸入內容；未知資料請標示待查"
+                      data-autosave>{{ field.entry }}</textarea>
+            <div class="field-extras">
+              <label>
+                <span>補充說明</span>
+                <textarea name="field__{{ field.row }}__note" rows="1"
+                          placeholder="選填，記錄理由或上下文"
+                          data-autosave>{{ field.note }}</textarea>
+              </label>
+              <label class="evidence-input">
+                <span>Evidence ID</span>
+                <input type="text" name="field__{{ field.row }}__evidence_id"
+                       value="{{ field.evidence_id }}" placeholder="例如 EV-001"
+                       data-autosave>
+              </label>
+            </div>
+          </article>
+        {% else %}
+          <div class="empty-inline">
+            <strong>找不到 {{ step }} 表單欄位</strong>
+            <p>請確認原始 XLSX 範本存在且「表單」工作表未改名。</p>
+          </div>
+        {% endfor %}
+      {% elif step == "SRP" %}
+        <div class="notice warning">
+          <strong>SRP 欄位對照為版本化參考，仍須人工覆核</strong>
+          <p>欄位清單依 ENISA SRP Glossary v{{ srp_mapping.version }} 整理；請 SRP AR 對照目前 SRP 畫面及案件資料逐項確認。平台不連線、不輸入、不提交。</p>
+        </div>
+        <article class="field-card">
+          <div class="field-title"><span class="field-number">1</span><label for="srp-type">通報類型</label></div>
+          <select id="srp-type" name="srp_type" data-autosave>
+            <option value="AEV" {% if case.srp.type == "AEV" %}selected{% endif %}>AEV</option>
+            <option value="SI" {% if case.srp.type == "SI" %}selected{% endif %}>重大事件（SI）</option>
+          </select>
+        </article>
+        <article class="field-card">
+          <div class="field-title"><span class="field-number">2</span><label for="srp-stage">SRP 報告階段</label></div>
+          <select id="srp-stage" name="srp_stage" data-autosave>
+            {% for key, label in stage_labels.items() %}
+              <option value="{{ key }}" {% if case.srp.stage == key %}selected{% endif %}
+                {% if key == "Intermediate" and not case.srp.intermediate_requested %}disabled{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+          <label class="check-row">
+            <input type="checkbox" name="intermediate_requested" value="1"
+                   {% if case.srp.intermediate_requested %}checked{% endif %} data-autosave>
+            <span>已有 CSIRT 明確要求 Intermediate Report</span>
+          </label>
+        </article>
+        <div class="srp-preview">
+          <span class="preview-icon">PDF</span>
+          <div><strong>SRP 手動填寫資料報告</strong><p>依目前案件資料即時產生；報告會清楚標示草稿及未提交狀態。</p></div>
+          <a class="button secondary small" href="{{ url_for('report_pdf', case_id=case.id) }}">下載 PDF</a>
+        </div>
+        <section class="srp-mapping">
+          <div class="srp-mapping-heading">
+            <div><h3>目前階段 SRP 欄位預覽</h3>
+              <p>ENISA SRP Glossary v{{ srp_mapping.version }} · 更新 {{ enisa_glossary_updated }} · 本機核對 {{ enisa_glossary_checked }}</p>
+            </div>
+            <span class="missing-count {% if srp_mapping.required_missing %}has-missing{% endif %}">
+              {% if case.srp.stage == "Intermediate" %}依 CSIRT 要求{% else %}{{ srp_mapping.required_missing }} 個必填欄位待補{% endif %}
+            </span>
+          </div>
+          {% if case.srp.stage == "Intermediate" %}
+            <div class="notice warning">
+              <strong>Intermediate 欄位依 CSIRT 指示</strong>
+              <p>ENISA Glossary v{{ srp_mapping.version }} 未列出獨立 Intermediate 欄位欄。請依 CSIRT 要求確認資料；本工具不套用 72h 欄位作為正式規則。</p>
+            </div>
+          {% else %}
+            <div class="table-scroll">
+              <table class="mapping-table">
+                <thead><tr><th>ENISA 欄位</th><th>階段要求</th><th>目前值</th><th>來源／Evidence ID</th></tr></thead>
+                <tbody>
+                  {% for field in srp_mapping.fields %}
+                    <tr class="{% if field.missing %}missing-row{% endif %}">
+                      <td><span class="field-code">{{ field.number }}</span>{{ field.name }}</td>
+                      <td><span class="requirement-tag {% if field.requirement in ('Required','Mandatory') %}required{% endif %}">{{ field.requirement }}</span></td>
+                      <td class="mapping-value">{% if field.value %}{{ field.value }}{% else %}<span class="empty-value">{{ field.status }}</span>{% endif %}</td>
+                      <td class="mapping-source">{{ field.source }}{% if field.evidence_id %}<br><span class="case-id">{{ field.evidence_id }}</span>{% endif %}</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          {% endif %}
+          <a class="source-link" href="{{ enisa_glossary_url }}" target="_blank" rel="noreferrer">開啟 ENISA 官方 SRP Glossary ↗</a>
+        </section>
+      {% elif step == "D7" %}
+        <div class="notice info">
+          <strong>只登錄 Evidence ID 與受控位置</strong>
+          <p>原始漏洞附件不複製到本系統資料庫。</p>
+        </div>
+        <article class="field-card">
+          <div class="field-title"><span class="field-number">A</span><label>證據管理資訊</label></div>
+          <div class="field-extras">
+            <label><span>證據保管權責人</span><input name="evidence_meta__custodian" value="{{ case.evidence_meta.custodian }}" data-autosave></label>
+            <label><span>受控證據保存位置／資料庫</span><input name="evidence_meta__location" value="{{ case.evidence_meta.location }}" data-autosave></label>
+          </div>
+        </article>
+        <div class="evidence-header">
+          <div><h3>證據索引</h3><p>每筆證據應有唯一 Evidence ID。</p></div>
+          <button class="button secondary small" type="button" id="add-evidence">＋ 新增證據</button>
+        </div>
+        <div id="evidence-list" class="evidence-list">
+          {% set evidence_items = case.evidence if case.evidence else [{}] %}
+          {% for item in evidence_items %}
+            <article class="evidence-card" data-evidence-row="{{ loop.index0 }}">
+              <div class="evidence-card-title"><strong>Evidence {{ loop.index }}</strong><button type="button" class="remove-evidence" aria-label="移除此列">移除</button></div>
+              <div class="evidence-grid">
+                <label><span>Evidence ID</span><input name="evidence__{{ loop.index0 }}__evidence_id" value="{{ item.get('evidence_id','') }}" placeholder="EV-001" data-autosave></label>
+                <label><span>取得時間／時區</span><input name="evidence__{{ loop.index0 }}__obtained_at" value="{{ item.get('obtained_at','') }}" placeholder="日期與時區" data-autosave></label>
+                <label><span>證據類型</span><input name="evidence__{{ loop.index0 }}__kind" value="{{ item.get('kind','') }}" placeholder="例如 PoC、日誌" data-autosave></label>
+                <label class="wide"><span>內容描述</span><textarea name="evidence__{{ loop.index0 }}__description" rows="2" data-autosave>{{ item.get('description','') }}</textarea></label>
+                <label><span>來源</span><input name="evidence__{{ loop.index0 }}__source" value="{{ item.get('source','') }}" data-autosave></label>
+                <label><span>受控保存位置</span><input name="evidence__{{ loop.index0 }}__location" value="{{ item.get('location','') }}" data-autosave></label>
+                <label><span>保管人</span><input name="evidence__{{ loop.index0 }}__custodian" value="{{ item.get('custodian','') }}" data-autosave></label>
+                <label><span>關聯步驟</span><input name="evidence__{{ loop.index0 }}__step" value="{{ item.get('step','') }}" placeholder="D3、D5…" data-autosave></label>
+              </div>
+            </article>
+          {% endfor %}
+        </div>
+        <div class="evidence-header review-heading">
+          <div><h3>證據品質與結案核對</h3><p>只記錄核對結果；最終覆核仍由權責人員負責。</p></div>
+        </div>
+        <div class="review-fields">
+          {% for row, label in d7_review_fields %}
+            <label class="review-field">
+              <span>{{ label }}</span>
+              <textarea name="d7_review__{{ row }}" rows="2" data-autosave>{{ case.evidence_meta.review.get(row|string, '') }}</textarea>
+            </label>
+          {% endfor %}
+        </div>
+      {% endif %}
+
+      <div class="form-actions">
+        {% if step_index > 0 %}
+          <a class="button ghost" href="{{ url_for('case_page', case_id=case.id, step=step_order[step_index - 1]) }}">← 上一步</a>
+        {% else %}<span></span>{% endif %}
+        <div class="action-group">
+          <button class="button secondary" type="submit" data-intent="save">儲存</button>
+          {% if step_index < step_order|length - 1 %}
+            <button class="button primary" type="submit" data-intent="next">儲存並下一步 →</button>
+            <button class="complete-link" type="submit" data-intent="complete">標記完成並下一步</button>
+          {% else %}
+            <button class="button primary" type="submit" data-intent="complete">標記本步完成</button>
+          {% endif %}
+        </div>
+      </div>
+    </form>
+  </section>
+
+  <aside class="panel flow-panel" aria-label="案件流程與期限">
+    <div class="flow-heading">
+      <div><p class="eyebrow">CASE FLOW</p><h2>案件流程</h2></div>
+      <span class="flow-count">{{ case.steps.values()|select('equalto','completed')|list|length }}/8</span>
+    </div>
+
+    <form class="awareness-card" id="awareness-form" data-case-id="{{ case.id }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div class="awareness-title"><span class="clock-icon">◷</span><div><strong>Awareness Time 起算</strong><small>需經權責人員確認</small></div></div>
+      <label for="awareness-local">知悉時間</label>
+      <input id="awareness-local" name="awareness_local" type="datetime-local"
+             value="{{ awareness.local }}" data-awareness-autosave>
+      <label for="awareness-timezone">時間時區</label>
+      <input id="awareness-timezone" name="awareness_timezone" value="{{ awareness.timezone or 'Asia/Taipei' }}"
+             placeholder="Asia/Taipei" data-awareness-autosave>
+      <div class="awareness-save" id="awareness-save" aria-live="polite">自動保存</div>
+      <p class="micro-copy">24h 與 72h 截止均由此知悉時間計算；修改後保留本機更新紀錄。</p>
+    </form>
+
+    <ol class="flow-list">
+      {% for item in step_order %}
+        {% set status = case.steps.get(item, "not_started") %}
+        <li class="flow-step {% if status == 'completed' %}completed{% elif item == step %}current{% elif status == 'in_progress' %}in-progress{% else %}incomplete{% endif %}">
+          <a class="flow-node" href="{{ url_for('case_page', case_id=case.id, step=item) }}">
+            <span class="flow-marker">{% if status == "completed" %}✓{% else %}{{ loop.index }}{% endif %}</span>
+            <span class="flow-node-copy"><strong>{{ item }} · {{ step_titles[item] }}</strong><small>{% if status == "completed" %}已完成{% elif item == step %}目前位置{% elif status == "in_progress" %}填寫中{% else %}未完成{% endif %}</small></span>
+          </a>
+          {% if item == "D4" %}
+            <div class="deadline-stack" aria-label="知悉後法定期限倒數">
+              <div class="deadline-card" data-countdown="24" data-deadline="{{ current_deadlines['24'] }}" data-timezone="{{ awareness.timezone or 'Asia/Taipei' }}">
+                <div class="deadline-top"><span class="deadline-badge">24h</span><span>Early Warning</span></div>
+                <strong class="countdown-value" id="countdown-24">{% if current_deadlines['24'] %}計算中…{% else %}待填知悉時間{% endif %}</strong>
+                <small class="deadline-date" id="deadline-date-24">{{ deadline_labels['24'] or "截止時間待計算" }}</small>
+              </div>
+              <div class="deadline-card secondary-deadline" data-countdown="72" data-deadline="{{ current_deadlines['72'] }}" data-timezone="{{ awareness.timezone or 'Asia/Taipei' }}">
+                <div class="deadline-top"><span class="deadline-badge">72h</span><span>Notification</span></div>
+                <strong class="countdown-value" id="countdown-72">{% if current_deadlines['72'] %}計算中…{% else %}待填知悉時間{% endif %}</strong>
+                <small class="deadline-date" id="deadline-date-72">{{ deadline_labels['72'] or "截止時間待計算" }}</small>
+              </div>
+            </div>
+          {% endif %}
+        </li>
+      {% endfor %}
+    </ol>
+
+    <div class="flow-legend">
+      <span><i class="legend-dot green"></i>已完成</span>
+      <span><i class="legend-dot blue"></i>目前步驟</span>
+      <span><i class="legend-dot gray"></i>未完成</span>
+    </div>
+    <div class="flow-footnote">倒數只在本機頁面開啟時更新；本工具不提供背景推播。</div>
+  </aside>
+</div>
+
+<details class="export-detail">
+  <summary>匯出內容與注意事項</summary>
+  <div class="export-detail-body">
+    <p>ZIP 包含 D1–D7 範本副本及一份目前 SRP 階段的 PDF。可在任一填寫步驟匯出，匯出不會推進案件流程。</p>
+    <p>SRP PDF 依 ENISA Glossary 版本快照列出目前階段適用欄位；SRP AR 仍須核對當前畫面與條件式欄位。PDF 只提供人工填寫參考，不代表 SRP 已輸入或提交。</p>
+  </div>
+</details>
+{% endblock %}

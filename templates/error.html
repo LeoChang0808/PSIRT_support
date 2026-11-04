@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}{{ code }} | PSIRT CRA 輔助填寫平台{% endblock %}
+{% block content %}
+<div class="error-state">
+  <span class="eyebrow">ERROR {{ code }}</span>
+  <h1>目前無法完成這個動作</h1>
+  <p>{{ message }}</p>
+  <a class="button secondary" href="{{ url_for('index') }}">回到案件清單</a>
+</div>
+{% endblock %}

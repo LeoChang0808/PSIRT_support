@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="csrf-token" content="{{ csrf_token }}">
+  <title>{% block title %}PSIRT CRA 輔助填寫平台{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+  <script defer src="{{ url_for('static', filename='app.js') }}"></script>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <a class="brand" href="{{ url_for('index') }}" aria-label="回到案件首頁">
+        <span class="brand-mark">P</span>
+        <span><strong>PSIRT</strong><small>CRA 通報輔助平台</small></span>
+      </a>
+      <div class="local-badge"><span class="status-dot"></span>本機加密儲存</div>
+    </header>
+    <main class="page">
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          <div class="flash-stack" role="status">
+            {% for category, message in messages %}
+              <div class="flash {{ category }}">{{ message }}</div>
+            {% endfor %}
+          </div>
+        {% endif %}
+      {% endwith %}
+      {% block content %}{% endblock %}
+    </main>
+    <footer class="site-footer">
+      <span>只在本機運作 · SRP 由授權人員手動填寫與提交</span>
+      <span>CRA Article 14 工作輔助工具</span>
+    </footer>
+  </div>
+</body>
+</html>
