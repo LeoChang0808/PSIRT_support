@@ -126,6 +126,93 @@
       field.addEventListener("input", handleAutoSave);
       field.addEventListener("change", handleAutoSave);
     });
+
+    const evidenceDialog = document.getElementById("evidence-dialog");
+    const evidenceDialogForm = document.getElementById("evidence-dialog-form");
+    const evidenceDialogError = document.getElementById("evidence-dialog-error");
+    const evidenceDialogCancel = document.getElementById("evidence-dialog-cancel");
+    let activeEvidenceSelect = null;
+    const restoreEvidenceSelection = () => {
+      if (activeEvidenceSelect) {
+        activeEvidenceSelect.value = activeEvidenceSelect.dataset.previousValue || "";
+        activeEvidenceSelect = null;
+      }
+    };
+    if (evidenceDialog && evidenceDialogForm) {
+      stepForm.querySelectorAll("[data-evidence-select]").forEach((select) => {
+        select.dataset.previousValue = select.value;
+        select.addEventListener("change", () => {
+          if (select.value !== "__create__") {
+            select.dataset.previousValue = select.value;
+            return;
+          }
+          activeEvidenceSelect = select;
+          select.value = select.dataset.previousValue || "";
+          evidenceDialogError.textContent = "";
+          evidenceDialogForm.reset();
+          const timezone = document.getElementById("awareness-timezone")?.value || "Asia/Taipei";
+          const timezoneField = evidenceDialogForm.elements.namedItem("timezone");
+          if (timezoneField) timezoneField.value = timezone;
+          evidenceDialog.showModal();
+          evidenceDialogForm.elements.namedItem("evidence_id")?.focus();
+        });
+      });
+
+      evidenceDialogCancel?.addEventListener("click", () => {
+        restoreEvidenceSelection();
+        evidenceDialog.close();
+      });
+      evidenceDialog.addEventListener("cancel", restoreEvidenceSelection);
+      evidenceDialog.addEventListener("click", (event) => {
+        if (event.target === evidenceDialog) {
+          restoreEvidenceSelection();
+          evidenceDialog.close();
+        }
+      });
+      evidenceDialogForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        if (!activeEvidenceSelect) return;
+        const submitButton = evidenceDialogForm.querySelector("[type='submit']");
+        const data = Object.fromEntries(new FormData(evidenceDialogForm).entries());
+        data.step = stepForm.dataset.step;
+        data.field_name = activeEvidenceSelect.name;
+        if (evidenceDialogError) evidenceDialogError.textContent = "";
+        if (submitButton) submitButton.disabled = true;
+        try {
+          const response = await fetch(
+            "/api/cases/" + encodeURIComponent(stepForm.dataset.caseId) + "/evidence",
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
+              body: JSON.stringify(data),
+            },
+          );
+          const result = await response.json();
+          if (!response.ok || !result.ok) throw new Error(result.error || "建立證據失敗。");
+          const evidence = result.evidence;
+          stepForm.querySelectorAll("[data-evidence-select]").forEach((select) => {
+            let option = [...select.options].find((item) => item.value === evidence.evidence_id);
+            if (!option) {
+              option = document.createElement("option");
+              option.value = evidence.evidence_id;
+              option.textContent = evidence.evidence_id + (evidence.kind ? " · " + evidence.kind : "");
+              const createOption = select.querySelector("option[value='__create__']");
+              select.insertBefore(option, createOption?.nextSibling || null);
+            }
+          });
+          activeEvidenceSelect.value = evidence.evidence_id;
+          activeEvidenceSelect.dataset.previousValue = evidence.evidence_id;
+          activeEvidenceSelect = null;
+          evidenceDialog.close();
+          queueSave();
+          setSaveState("證據已建立，Evidence ID 已選入欄位", "saved");
+        } catch (error) {
+          if (evidenceDialogError) evidenceDialogError.textContent = error.message || "建立證據失敗。";
+        } finally {
+          if (submitButton) submitButton.disabled = false;
+        }
+      });
+    }
     if (submissionBadge) {
       stepForm.querySelectorAll(".submission-card input, .submission-card select").forEach((field) => {
         field.addEventListener("input", updateSubmissionBadgeLocally);

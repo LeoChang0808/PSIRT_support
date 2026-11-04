@@ -281,6 +281,26 @@ textarea::placeholder, input::placeholder { color: #a4b0b7; }
 .evidence-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
 .evidence-grid .wide { grid-column: 1 / -1; }
 .evidence-grid input, .evidence-grid textarea { font-size: 11px; }
+.reference-pill { border-radius: 999px; padding: 4px 8px; color: var(--green); background: var(--green-soft); font-size: 9px; font-weight: 700; }
+.evidence-ref-label { display: block; margin-bottom: 5px; color: #627581; font-size: 10px; font-weight: 700; }
+.evidence-reference-list { display: flex; flex-wrap: wrap; gap: 5px; }
+.evidence-reference-list span { border-radius: 999px; padding: 4px 8px; color: #486575; background: #eef4f6; font-size: 9px; }
+.evidence-dialog { width: min(680px, calc(100vw - 28px)); max-height: min(90vh, 820px); overflow: auto; border: 1px solid #dbe5e8; border-radius: 14px; padding: 22px; color: var(--ink); box-shadow: 0 24px 80px #10273833; }
+.evidence-dialog::backdrop { background: #10273877; backdrop-filter: blur(2px); }
+.evidence-dialog form { display: grid; gap: 14px; }
+.evidence-dialog-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; padding-bottom: 12px; border-bottom: 1px solid #edf1f3; }
+.evidence-dialog-heading .eyebrow { margin: 0 0 3px; }
+.evidence-dialog-heading h2 { margin: 0; font-size: 19px; }
+.evidence-dialog-heading > p { max-width: 250px; margin: 0; color: var(--muted); font-size: 10px; line-height: 1.6; }
+.evidence-dialog-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 11px; }
+.evidence-dialog-grid label { display: grid; gap: 5px; min-width: 0; }
+.evidence-dialog-grid label > span { color: #627581; font-size: 10px; font-weight: 700; }
+.evidence-dialog-grid .wide { grid-column: 1 / -1; }
+.evidence-dialog-grid input, .evidence-dialog-grid textarea { font-size: 11px; }
+.dialog-error { min-height: 0; margin: 0; color: var(--red); font-size: 10px; }
+.dialog-error:empty { display: none; }
+.evidence-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; padding-top: 4px; }
+.evidence-dialog-actions button:disabled { opacity: .6; cursor: wait; }
 .export-detail { margin-top: 16px; background: white; border: 1px solid var(--line); border-radius: 9px; padding: 12px 15px; color: #526571; font-size: 11px; }
 .export-detail summary { cursor: pointer; font-weight: 700; }
 .export-detail-body { border-top: 1px solid #edf1f3; margin-top: 9px; padding-top: 9px; }

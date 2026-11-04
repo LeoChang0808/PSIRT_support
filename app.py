@@ -500,6 +500,60 @@ def auto_save(case_id: str):
     return jsonify(result)
 
 
+@app.post("/api/cases/<case_id>/evidence")
+def create_evidence(case_id: str):
+    _check_csrf()
+    case = _case_or_404(case_id)
+    body = request.get_json(silent=True) or {}
+    evidence_id = str(body.get("evidence_id", "")).strip()
+    if not evidence_id:
+        return jsonify({"ok": False, "error": "請填寫 Evidence ID。"}), 400
+    source_step = str(body.get("step", ""))
+    field_name = str(body.get("field_name", ""))
+    match = re.fullmatch(r"field__(D[1-6])__(\d+)__evidence_id", field_name)
+    valid_rows = {
+        (code, row)
+        for code, rows in WORKFLOW_FIELDS.get(source_step, ())
+        for row in rows
+    }
+    if (
+        source_step not in STEP_ORDER
+        or not match
+        or (match.group(1), int(match.group(2))) not in valid_rows
+    ):
+        return jsonify({"ok": False, "error": "無法確認目前要填入 Evidence ID 的欄位，請重新載入頁面。"}), 400
+    if any(item.get("evidence_id") == evidence_id for item in case.get("evidence", [])):
+        return jsonify({"ok": False, "error": "此 Evidence ID 已存在，請使用唯一編號。"}), 409
+
+    record = {
+        "evidence_id": evidence_id,
+        "obtained_at": str(body.get("obtained_at", "")).strip(),
+        "timezone": str(body.get("timezone", "")).strip(),
+        "kind": str(body.get("kind", "")).strip(),
+        "description": str(body.get("description", "")).strip(),
+        "source": str(body.get("source", "")).strip(),
+        "location": str(body.get("location", "")).strip(),
+        "custodian": str(body.get("custodian", "")).strip(),
+    }
+    if record["obtained_at"]:
+        try:
+            datetime.fromisoformat(record["obtained_at"])
+        except ValueError:
+            return jsonify({"ok": False, "error": "取得時間格式無效，請使用日期時間選擇器。"}), 400
+    if record["timezone"]:
+        try:
+            ZoneInfo(record["timezone"])
+        except ZoneInfoNotFoundError:
+            return jsonify({"ok": False, "error": "時區請使用有效的 IANA 名稱，例如 Asia/Taipei。"}), 400
+
+    case.setdefault("evidence", []).append(record)
+    _apply_template_fields(case, match.group(1), {field_name: evidence_id},
+                           (int(match.group(2)),))
+    _record_event(case, f"已建立 Evidence ID {evidence_id} 並選用於 {source_step}")
+    STORE.save(case)
+    return jsonify({"ok": True, "evidence": record, "saved_at": case["updated_local"]})
+
+
 @app.post("/api/cases/<case_id>/awareness")
 def save_awareness(case_id: str):
     _check_csrf()
