@@ -33,27 +33,88 @@ PROJECT_DIR = Path(os.environ.get("PSIRT_TEMPLATE_DIR", APP_DIR.parent)).expandu
 DATA_DIR = Path(os.environ.get("PSIRT_DATA_DIR", APP_DIR / ".data")).expanduser()
 DATABASE_PATH = DATA_DIR / "cases.sqlite3.enc"
 
-STEP_ORDER = ("D2", "D1", "D3", "D4", "SRP", "D5", "D6", "D7")
+STEP_ORDER = ("7.1", "7.2", "7.3", "7.4", "7.5", "7.6", "7.7", "7.8", "7.9")
 STEP_TITLES = {
-    "D2": "收案",
-    "D1": "產品適用性",
-    "D3": "影響評估",
-    "D4": "決策與期限",
-    "SRP": "SRP 報告",
-    "D5": "提交紀錄",
-    "D6": "使用者通知",
-    "D7": "證據與結案",
+    "7.1": "接收漏洞／資安事件資訊",
+    "7.2": "確認產品與 CRA 適用性",
+    "7.3": "判定 Article 14 通報義務",
+    "7.4": "啟動通報與期限管理",
+    "7.5": "提交 24 小時 Early Warning",
+    "7.6": "提交 72 小時 Notification",
+    "7.7": "通知受影響使用者（平行作業）",
+    "7.8": "後續追蹤與 CSIRT 中間報告",
+    "7.9": "最終報告、期限確認與歸檔",
 }
 STEP_HELP = {
-    "D2": "記錄原始來源、收到時間及初始描述。收案時間不自動等同 Awareness Time。",
-    "D1": "確認製造商、產品／版本、EU 市場及路由依據。",
-    "D3": "整理技術證據與未知事項；分類決定由授權人員核定。",
-    "D4": "由權責人員核准決策與 Awareness Time。右側倒數以此知悉時間起算。",
-    "SRP": "選擇目前通報階段並產生人工填寫用 PDF。系統不連線或操作 SRP。",
-    "D5": "回報欄位輸入完成時間、是否正式提交、提交時間及回執。",
-    "D6": "草擬受影響使用者通知；核准與對外發布仍由責任人員處理。",
-    "D7": "建立 Evidence ID 索引；原始證據留在公司核准的受控位置。",
+    "7.1": "登錄來源、首次接收時間、初始描述、產品線索與承辦人；收案時間不自動等同 Awareness Time。",
+    "7.2": "確認產品、版本、數位元素、歐盟市場與 CRA 適用性，補充影響產品及使用者範圍。",
+    "7.3": "整理利用證據、Article 14 條件、通報判定與核准依據；通報類型由權責人員確認。",
+    "7.4": "記錄經核准的 Awareness Time、指定 CSIRT／SRP 代表與期限安排；右側顯示 24／72 小時倒數。",
+    "7.5": "準備 24 小時 Early Warning。下載 SRP PDF 後由人員手動填寫 SRP，再回報填寫與提交時間。",
+    "7.6": "更新 72 小時 Notification 的技術影響、緩解措施與未知事項；SRP 仍由人員手動操作。",
+    "7.7": "此步驟與 7.5、7.6 平行啟動，不等待修補或前述提交；記錄通知對象、措施與送達證據。",
+    "7.8": "持續更新調查與使用者通知；僅在 CSIRT 明確要求時勾選並準備 Intermediate Report。",
+    "7.9": "完成最終報告、期限與結案核對，整理 Evidence 索引；全部步驟完成後統一匯出 D1–D7。",
 }
+FORM_TITLES = {
+    "D1": "產品與 CRA 適用性清冊",
+    "D2": "漏洞與資安事件接收登錄表",
+    "D3": "產品資安影響與通報條件評估表",
+    "D4": "法規通報決策與期限追蹤表",
+    "D5": "SRP 法規通報提交紀錄表",
+    "D6": "受影響使用者通知與資安公告表",
+}
+WORKFLOW_FIELDS = {
+    "7.1": (("D2", (13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 26, 27)),),
+    "7.2": (
+        ("D1", (13, 14, 15, 17, 18, 19, 20, 21, 23, 24, 25)),
+        ("D2", (24, 25)),
+        ("D3", (13, 15, 16, 17, 18)),
+    ),
+    "7.3": (
+        ("D3", (20, 21, 22, 24, 25, 26, 28, 29, 30, 34)),
+        ("D4", (13, 14, 15, 16, 17)),
+    ),
+    "7.4": (
+        ("D1", (27, 28, 29, 30, 31, 32, 33, 34, 36)),
+        ("D3", (32,)),
+        ("D4", (25, 27, 28, 30, 31)),
+    ),
+    "7.5": (("D5", (13, 14, 15, 16, 17, 19, 20, 21, 22, 23, 24, 25)),),
+    "7.6": (
+        ("D3", (37, 38)),
+        ("D4", (22, 23)),
+        ("D5", (27, 28, 29, 30, 31, 32)),
+    ),
+    "7.7": (("D6", (13, 14, 15, 16, 18, 19, 20, 21, 22, 23, 24, 25)),),
+    "7.8": (
+        ("D3", (36,)),
+        ("D4", (33, 34)),
+        ("D5", (34, 35, 36)),
+        ("D6", (27, 28, 29, 31, 33)),
+    ),
+    "7.9": (
+        ("D3", (39, 40)),
+        ("D4", (24, 35)),
+        ("D5", (38, 39, 40, 41, 43)),
+    ),
+}
+LEGACY_STEP_MAP = {
+    "D2": "7.1",
+    "D1": "7.2",
+    "D3": "7.3",
+    "D4": "7.4",
+    "SRP": "7.5",
+    "D5": "7.6",
+    "D6": "7.7",
+    "D7": "7.9",
+}
+REPORT_STAGE_BY_STEP = {
+    "7.5": "EW",
+    "7.6": "72h",
+    "7.9": "Final",
+}
+
 D7_REVIEW_FIELDS = (
     (35, "原始檔案完整性／校驗方式（適用時）"),
     (36, "存取／保管權限"),
@@ -110,7 +171,7 @@ def _new_case() -> dict:
         "title": "新案件",
         "created_at": now,
         "updated_local": now,
-        "current_step": "D2",
+        "current_step": "7.1",
         "steps": {step: "not_started" for step in STEP_ORDER},
         "forms": {code: {} for code in TEMPLATE_FILES},
         "shared_fields": {
@@ -130,12 +191,44 @@ def _new_case() -> dict:
     }
 
 
+def _migrate_case_workflow(case: dict) -> bool:
+    """Map the old D1-D7 navigation onto procedure 7.1-7.9 without touching form data."""
+    old_steps = case.get("steps", {})
+    inverse = {}
+    for old_step, new_step in LEGACY_STEP_MAP.items():
+        inverse.setdefault(new_step, []).append(old_step)
+    new_steps = {}
+    valid_statuses = {"not_started", "in_progress", "completed"}
+    for step in STEP_ORDER:
+        status = old_steps.get(step)
+        if status not in valid_statuses:
+            status = next(
+                (old_steps.get(old) for old in inverse.get(step, ())
+                 if old_steps.get(old) in valid_statuses),
+                "not_started",
+            )
+        new_steps[step] = status
+    changed = new_steps != old_steps
+    if changed:
+        case["steps"] = new_steps
+
+    old_current = case.get("current_step", "")
+    current = LEGACY_STEP_MAP.get(old_current, old_current)
+    if current not in STEP_ORDER:
+        current = "7.1"
+    if current != old_current:
+        case["current_step"] = current
+        changed = True
+    return changed
+
+
 def _case_or_404(case_id: str) -> dict:
     case = STORE.get(case_id)
-    if case is None:
+    if case is None or case.get("trashed_at"):
         abort(404)
+    if _migrate_case_workflow(case):
+        STORE.save(case)
     return case
-
 
 def _record_event(case: dict, event: str) -> None:
     case.setdefault("events", []).append({
@@ -324,20 +417,52 @@ def _apply_awareness(case: dict, values: dict) -> str | None:
     return None
 
 
+def _set_report_stage(case: dict, step: str) -> None:
+    stage = REPORT_STAGE_BY_STEP.get(step)
+    if step == "7.8":
+        stage = "Intermediate" if case.get("srp", {}).get("intermediate_requested") else "72h"
+    if stage:
+        case.setdefault("srp", {})["stage"] = stage
+
+
+def _submission_for_step(case: dict, step: str) -> dict:
+    stage = {
+        "7.5": "EW",
+        "7.6": "72h",
+        "7.8": "Intermediate",
+        "7.9": "Final",
+    }.get(step)
+    if not stage:
+        return current_submission(case)
+    report_type = case.get("srp", {}).get("type", "AEV")
+    return dict(case.get("srp_submissions", {}).get(submission_key(report_type, stage), {}))
+
+
+def _all_steps_completed(case: dict) -> bool:
+    return all(case.get("steps", {}).get(step) == "completed" for step in STEP_ORDER)
+
+
 def _apply_step(case: dict, step: str, values: dict, intent: str) -> None:
-    if step in TEMPLATE_FILES:
-        _apply_template_fields(case, step, values)
-        if step == "D5":
-            error = _apply_srp_submission(case, values)
-            if error:
-                raise ValueError(error)
-    elif step == "SRP":
+    for code, rows in WORKFLOW_FIELDS.get(step, ()):
+        _apply_template_fields(case, code, values, rows)
+
+    if step in {"7.3", "7.8"}:
         _apply_srp(case, values)
-    elif step == "D7":
+    _set_report_stage(case, step)
+
+    if step == "7.4" and "awareness_local" in values:
+        error = _apply_awareness(case, values)
+        if error:
+            raise ValueError(error)
+
+    if step == "7.9":
         _apply_evidence(case, values)
 
-    if step == "D4" and "awareness_local" in values:
-        error = _apply_awareness(case, values)
+    tracks_submission = step in {"7.5", "7.6", "7.9"} or (
+        step == "7.8" and case.get("srp", {}).get("intermediate_requested")
+    )
+    if tracks_submission:
+        error = _apply_srp_submission(case, values)
         if error:
             raise ValueError(error)
 
@@ -361,44 +486,66 @@ def _apply_step(case: dict, step: str, values: dict, intent: str) -> None:
         case["current_step"] = step
     _record_event(case, f"{step} 資料已保存")
 
-
 def _render_fields(case: dict, step: str) -> list[dict]:
     fields: list[dict] = []
-    for field in SCHEMA.get(step, []):
-        label = field["label"]
-        if step == "D4" and any(
-            marker in label.casefold() for marker in ("awareness time", "24h", "72h")
-        ):
-            continue
-        stored = case.get("forms", {}).get(step, {}).get(str(field["row"]), {})
-        shared_record = case.get("shared_fields", {}).get(shared_field_key(label), "")
-        if isinstance(shared_record, dict):
-            reused_value = shared_record.get("value", "")
-            source_step = shared_record.get("source_step", "")
-            source_label = shared_record.get("source_label", label)
-            source_updated = shared_record.get("updated_at", "")
-        else:
-            reused_value, source_step, source_label, source_updated = shared_record, "", label, ""
-        local_value = stored.get("entry", "")
-        fields.append({
-            **field,
-            "entry": _field_value(case, step, field, "entry"),
-            "note": _field_value(case, step, field, "note"),
-            "evidence_id": _field_value(case, step, field, "evidence_id"),
-            "reused": bool(reused_value) and (
-                not bool(local_value)
-                or (source_step and source_step != step and local_value == reused_value)
-            ),
-            "stale": bool(local_value and reused_value and local_value != reused_value),
-            "reuse_source": source_step + " · " + source_label if source_step else "",
-            "reuse_updated": source_updated,
-        })
+    for code, rows in WORKFLOW_FIELDS.get(step, ()):
+        allowed = set(rows)
+        for field in SCHEMA.get(code, []):
+            if field["row"] not in allowed:
+                continue
+            if code == "D4" and field["row"] in {19, 20, 21}:
+                continue
+            label = field["label"]
+            stored = case.get("forms", {}).get(code, {}).get(str(field["row"]), {})
+            shared_record = case.get("shared_fields", {}).get(shared_field_key(label), "")
+            if isinstance(shared_record, dict):
+                reused_value = shared_record.get("value", "")
+                source_step = shared_record.get("source_step", "")
+                source_label = shared_record.get("source_label", label)
+                source_updated = shared_record.get("updated_at", "")
+            else:
+                reused_value, source_step, source_label, source_updated = shared_record, "", label, ""
+            local_value = stored.get("entry", "")
+            entry_value = _field_value(case, code, field, "entry")
+            datetime_picker = _uses_datetime_picker(field)
+            picker_value = _datetime_local_value(entry_value) if datetime_picker else ""
+            legacy_datetime_value = (
+                entry_value if datetime_picker and entry_value and not picker_value else ""
+            )
+            timezone_value = stored.get("timezone", "")
+            if not timezone_value and not legacy_datetime_value:
+                timezone_value = case.get("awareness", {}).get("timezone", "Asia/Taipei")
+            row = str(field["row"])
+            fields.append({
+                **field,
+                "source_code": code,
+                "source_title": FORM_TITLES[code],
+                "dom_id": f"field-{code}-{row}",
+                "entry_name": f"field__{code}__{row}__entry",
+                "note_name": f"field__{code}__{row}__note",
+                "evidence_name": f"field__{code}__{row}__evidence_id",
+                "timezone_name": f"field__{code}__{row}__timezone",
+                "entry": entry_value,
+                "note": _field_value(case, code, field, "note"),
+                "evidence_id": _field_value(case, code, field, "evidence_id"),
+                "datetime_picker": datetime_picker,
+                "datetime_value": picker_value,
+                "legacy_datetime_value": legacy_datetime_value,
+                "timezone_field": "時區" in label,
+                "timezone_value": timezone_value,
+                "reused": bool(reused_value) and (
+                    not bool(local_value)
+                    or (source_step and source_step != code and local_value == reused_value)
+                ),
+                "stale": bool(local_value and reused_value and local_value != reused_value),
+                "reuse_source": source_step + " · " + source_label if source_step else "",
+                "reuse_updated": source_updated,
+            })
     return fields
-
 
 def _render_case(case: dict, step: str):
     if step not in STEP_ORDER:
-        step = case.get("current_step", "D2")
+        step = case.get("current_step", "7.1")
     awareness = case.get("awareness", {})
     current_deadlines = {
         "24": deadline_iso(case, 24),
@@ -565,6 +712,8 @@ def save_step(case_id: str, step: str):
         abort(404)
     case = _case_or_404(case_id)
     values = request.form.to_dict(flat=True)
+    if request.form.getlist("intermediate_requested"):
+        values["intermediate_requested"] = request.form.getlist("intermediate_requested")[-1]
     intent = values.get("intent", "save")
     try:
         _apply_step(case, step, values, intent)
@@ -592,9 +741,11 @@ def auto_save(case_id: str):
         return jsonify({"ok": False, "error": str(exc)}), 400
     STORE.save(case)
     result = {"ok": True, "saved_at": case["updated_local"]}
-    if step == "D5":
+    if step in {"7.5", "7.6", "7.9"} or (
+        step == "7.8" and case.get("srp", {}).get("intermediate_requested")
+    ):
         result["submission_state"] = submission_state(
-            current_submission(case), case.get("evidence", [])
+            _submission_for_step(case, step), case.get("evidence", [])
         )
     return jsonify(result)
 
@@ -692,27 +843,11 @@ def report_pdf(case_id: str):
     )
 
 
-@app.get("/cases/<case_id>/export/<code>.xlsx")
-def export_xlsx(case_id: str, code: str):
-    case = _case_or_404(case_id)
-    if code not in (*TEMPLATE_FILES.keys(), "D7"):
-        abort(404)
-    try:
-        data = build_xlsx(code, PROJECT_DIR, case, SCHEMA)
-    except FileNotFoundError as exc:
-        abort(503, description=str(exc))
-    filename = f"{_safe_filename(case.get('case_number', 'case'))}_{code}.xlsx"
-    return send_file(
-        io.BytesIO(data),
-        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        as_attachment=True,
-        download_name=filename,
-    )
-
-
 @app.get("/cases/<case_id>/export/all.zip")
 def export_bundle(case_id: str):
     case = _case_or_404(case_id)
+    if not _all_steps_completed(case):
+        abort(403, description="請完成程序 7.1–7.9 後，再統一匯出 D1–D7 表單。")
     bundle = io.BytesIO()
     prefix = _safe_filename(case.get("case_number", "case"))
     try:

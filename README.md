@@ -1,6 +1,6 @@
 # PSIRT CRA 輔助填寫平台
 
-本機逐步式 Web UI 原型，依案件流程協助 PSIRT 整理 D1–D7 資料，顯示 Awareness Time 後的 24／72 小時倒數，並產生表單副本與 SRP 人工填寫參考 PDF。
+本機逐步式 Web UI 原型，依 CRA 程序書 7.1–7.9 引導 PSIRT 填寫案件欄位，顯示 Awareness Time 後的 24／72 小時倒數，並於最終步驟統一匯出 D1–D7 表單。
 
 ## 啟動
 
@@ -19,14 +19,17 @@ Git clone 後請在 repository 根目錄執行以上命令。若 Python 3.13 的
 
 ## 已實作
 
-- D2、D1、D3、D4、SRP、D5、D6、D7 逐步填寫與流程狀態。
+- 依程序書 7.1–7.9 顯示流程；左側只呈現各程序步驟需要填寫的欄位，欄位值仍分別保存至 D1–D6 原表單資料。
 - 對應原始 D1–D6 範本欄位讀取；相同欄位名稱可沿用先前確認的輸入。
-- Awareness Time 與 IANA 時區輸入；右側流程 D4 節點顯示 24 小時 Early Warning 與 72 小時 Notification 的即時倒數。兩個期限都從同一 Awareness Time 起算；時間未填時顯示待填，過期後顯示逾期。
-- D7 Evidence ID 索引欄位。
-- 任一步驟匯出 D1–D7 XLSX 範本副本與一份 SRP Report PDF 的 ZIP，也可逐一下載。
+- 日期／時間欄位使用本機 `datetime-local` 選擇器；IANA 時區分開填寫，匯出時保留在對應欄位。舊有非日期時間文字會保留，選取新時間時移至補充欄位。
+- Awareness Time 與 IANA 時區輸入；右側流程 7.4 節點顯示 24 小時 Early Warning 與 72 小時 Notification 的即時倒數。兩個期限都從同一 Awareness Time 起算；時間未填時顯示待填，過期後顯示逾期。
+- D1–D6 的 Evidence ID 下拉可選既有證據，或開啟對話框建立證據；D7 自動彙整被引用的欄位，供結案核對及匯出。
+- 24 小時、72 小時、中間報告（CSIRT 明確要求時）及最終報告階段可下載 SRP 填寫資料 PDF；完成 7.1–7.9 後，才可一次匯出 D1–D7 XLSX 範本副本與 SRP Report PDF 的 ZIP。
 - SRP Report PDF 依選擇的 AEV／SI 類型與 EW／72h／Final 階段，列出 ENISA Glossary 欄位、階段要求、目前資料、來源及 Evidence ID；Intermediate Report 依 CSIRT 個別要求，不套用通用欄位清單。
 - 表單欄位變更後自動保存；重新開啟案件可續填。
 - 案件資料僅存本機；SQLite 快照與案件內容都使用 AES-GCM 加密。加密金鑰存放在 macOS Keychain。匯出的檔案由瀏覽器下載，不會回寫原始範本。
+- 案件清單可將案件移至垃圾桶；垃圾桶頁可逐件永久刪除或清空。永久刪除後無法從平台復原。
+- 新建立案件的 Case ID 格式為 `CRA-YYYY-XXXX`，每年由 `0001` 起按序遞增；序號保存在加密資料庫內，既有案件編號不變。
 
 ## 使用界線與待補
 

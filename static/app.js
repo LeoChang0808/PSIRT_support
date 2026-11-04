@@ -25,6 +25,18 @@
     let pending = false;
     let saveAgain = false;
     const submissionBadge = stepForm.querySelector(".submission-status");
+    const intermediateToggle = stepForm.querySelector("[data-intermediate-toggle]");
+    const intermediateSubmission = stepForm.querySelector("[data-intermediate-submission]");
+    if (intermediateToggle && intermediateSubmission) {
+      const syncIntermediateCard = () => {
+        intermediateSubmission.hidden = !intermediateToggle.checked;
+        document.querySelectorAll("[data-intermediate-pdf]").forEach((item) => {
+          item.hidden = !intermediateToggle.checked;
+        });
+      };
+      syncIntermediateCard();
+      intermediateToggle.addEventListener("change", syncIntermediateCard);
+    }
     const setSubmissionBadge = (state) => {
       if (!submissionBadge || !state) return;
       submissionBadge.className = "submission-status " + state.key;

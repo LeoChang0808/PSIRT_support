@@ -137,7 +137,7 @@ h3 { font-size: 15px; margin-bottom: 5px; }
 .download-popover { position: absolute; z-index: 5; right: 0; top: calc(100% + 6px); min-width: 170px; padding: 6px; border: 1px solid var(--line); border-radius: 9px; background: white; box-shadow: 0 12px 28px #0c23301a; }
 .download-popover a { display: block; border-radius: 6px; padding: 7px 9px; font-size: 11px; }
 .download-popover a:hover { background: var(--teal-soft); color: var(--teal-dark); }
-.step-progress { display: grid; grid-template-columns: repeat(8, minmax(65px, 1fr)); gap: 5px; margin: 0 0 18px; overflow-x: auto; padding: 2px 1px 7px; }
+.step-progress { display: grid; grid-template-columns: repeat(9, minmax(65px, 1fr)); gap: 5px; margin: 0 0 18px; overflow-x: auto; padding: 2px 1px 7px; }
 .progress-step { min-width: 72px; display: flex; align-items: center; gap: 7px; padding: 7px 8px; color: #7a8992; border-radius: 8px; font-size: 10px; white-space: nowrap; }
 .progress-step.active { background: var(--blue-soft); color: #1e4f9c; font-weight: 700; }
 .progress-step.done { color: var(--green); }
@@ -155,6 +155,10 @@ h3 { font-size: 15px; margin-bottom: 5px; }
 .step-state.state-complete { background: var(--green-soft); color: var(--green); }
 .step-state.state-progress { background: var(--blue-soft); color: var(--blue); }
 .step-form { display: grid; gap: 11px; }
+.submission-card[hidden], .export-actions [hidden], .srp-preview[hidden] { display: none !important; }
+.field-group-heading { display: flex; align-items: center; gap: 8px; margin: 10px 0 -3px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+.field-group-heading span { color: var(--blue); background: var(--blue-soft); border-radius: 5px; padding: 3px 6px; font-size: 10px; font-weight: 800; }
+.field-group-heading h3 { margin: 0; color: #405361; font-size: 12px; }
 .field-card { border: 1px solid #e5ecef; background: #fff; border-radius: 9px; padding: 13px 14px; }
 .field-card:focus-within { border-color: #9dcac5; box-shadow: 0 0 0 3px #e6f5f333; }
 .field-title { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
@@ -342,7 +346,7 @@ textarea::placeholder, input::placeholder { color: #a4b0b7; }
 @media (max-width: 1080px) {
   .workspace-grid { grid-template-columns: minmax(0, 1.35fr) minmax(300px, .9fr); }
   .export-actions { max-width: 420px; }
-  .step-progress { grid-template-columns: repeat(8, minmax(90px, 1fr)); }
+  .step-progress { grid-template-columns: repeat(9, minmax(90px, 1fr)); }
 }
 @media (max-width: 820px) {
   .case-header { align-items: flex-start; flex-direction: column; }
@@ -358,7 +362,12 @@ textarea::placeholder, input::placeholder { color: #a4b0b7; }
   .page { padding: 24px 13px 35px; }
   .hero { align-items: flex-start; flex-direction: column; margin-bottom: 28px; }
   .case-card { padding: 14px; align-items: flex-start; }
+  .case-entry { grid-template-columns: 1fr; }
+  .case-entry form { justify-self: end; }
   .case-card-side { flex-direction: column; align-items: flex-end; gap: 5px; }
+  .section-heading-actions { align-items: flex-end; flex-direction: column; }
+  .trash-card { flex-direction: column; align-items: stretch; }
+  .trash-card-actions { align-self: flex-end; }
   .case-header { gap: 13px; }
   .export-actions { display: grid; width: 100%; grid-template-columns: 1fr 1fr; }
   .export-actions > .button:first-child { grid-column: 1 / -1; }
@@ -368,7 +377,15 @@ textarea::placeholder, input::placeholder { color: #a4b0b7; }
   .flow-panel { padding: 17px 13px; }
   .flow-list { grid-template-columns: 1fr; }
   .field-extras, .evidence-grid, .submission-grid { grid-template-columns: 1fr; }
+  .evidence-dialog-grid { grid-template-columns: 1fr; }
+  .evidence-dialog-grid .wide { grid-column: auto; }
+  .evidence-dialog-heading { align-items: flex-start; flex-direction: column; }
+  .datetime-entry { grid-template-columns: 1fr; }
   .evidence-grid .wide { grid-column: auto; }
+  .evidence-list-item { display: flex; flex-direction: column; align-items: stretch; gap: 2px; }
+  .evidence-list-item .remove-evidence { align-self: flex-end; }
+  .evidence-summary { grid-template-columns: 24px minmax(0, 1fr); }
+  .evidence-summary-meta { grid-column: 2; justify-content: space-between; padding-bottom: 8px; }
   .form-actions { align-items: flex-start; }
   .action-group { gap: 6px; }
   .complete-link { width: 100%; text-align: right; }
