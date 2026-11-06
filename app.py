@@ -29,7 +29,7 @@ from time_utils import deadline_iso, deadline_display
 from xlsx_export import build_xlsx
 
 APP_DIR = Path(__file__).resolve().parent
-PROJECT_DIR = Path(os.environ.get("PSIRT_TEMPLATE_DIR", APP_DIR.parent)).expanduser()
+TEMPLATE_DIR = Path(os.environ.get("PSIRT_TEMPLATE_DIR", APP_DIR / "form")).expanduser()
 DATA_DIR = Path(os.environ.get("PSIRT_DATA_DIR", APP_DIR / ".data")).expanduser()
 DATABASE_PATH = DATA_DIR / "cases.sqlite3.enc"
 
@@ -138,8 +138,8 @@ D7_REVIEW_FIELDS = (
     (43, "保管單位／複核人／複核時間"),
 )
 
-SCHEMA, MISSING_TEMPLATES = load_form_schema(PROJECT_DIR)
-if not (PROJECT_DIR / D7_TEMPLATE_FILE).exists():
+SCHEMA, MISSING_TEMPLATES = load_form_schema(TEMPLATE_DIR)
+if not (TEMPLATE_DIR / D7_TEMPLATE_FILE).exists():
     MISSING_TEMPLATES.append(D7_TEMPLATE_FILE)
 STORE = EncryptedCaseStore(DATABASE_PATH)
 
@@ -943,7 +943,7 @@ def export_xlsx(case_id: str, code: str):
     if code not in (*TEMPLATE_FILES.keys(), "D7"):
         abort(404)
     try:
-        data = build_xlsx(code, PROJECT_DIR, case, SCHEMA)
+        data = build_xlsx(code, TEMPLATE_DIR, case, SCHEMA)
     except FileNotFoundError as exc:
         abort(503, description=str(exc))
     filename = f"{_safe_filename(case.get('case_number', 'case'))}_{code}.xlsx"
@@ -963,7 +963,7 @@ def export_bundle(case_id: str):
     try:
         with zipfile.ZipFile(bundle, "w", zipfile.ZIP_DEFLATED) as archive:
             for code in ("D1", "D2", "D3", "D4", "D5", "D6", "D7"):
-                data = build_xlsx(code, PROJECT_DIR, case, SCHEMA)
+                data = build_xlsx(code, TEMPLATE_DIR, case, SCHEMA)
                 archive.writestr(f"{prefix}/{prefix}_{code}.xlsx", data)
             archive.writestr(
                 f"{prefix}/{prefix}_SRP_Report.pdf",

@@ -16,7 +16,7 @@
 {% if schema_missing %}
 <div class="notice warning">
   <strong>部分 XLSX 範本讀取不到</strong>
-  <p>請確認本平台資料夾的上一層仍有原始 D1–D7 範本。匯出功能需要這些範本。</p>
+  <p>預設從 repo 的 <code>form/</code> 資料夾讀取 D1–D7 XLSX 範本。若設定 <code>PSIRT_TEMPLATE_DIR</code>，請確認指定路徑包含完整範本。</p>
 </div>
 {% endif %}
 

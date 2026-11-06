@@ -44,7 +44,7 @@ Git clone 後請在 repository 根目錄執行以上命令。若 Python 3.13 的
 
 - 預設加密資料庫：此資料夾下 .data/cases.sqlite3.enc。
 - 金鑰：macOS Keychain，不與資料庫放在同一目錄。
-- D1–D7 原始範本不包含在程式碼 repository。預設從平台資料夾的上一層讀取；Git clone 後，請將公司核准的範本放在受控位置並設定 `PSIRT_TEMPLATE_DIR`：
+- D1–D7 原始範本預設放在 repository 根目錄的 `form/` 資料夾，平台從該處讀取。若要改用其他受控位置，可設定 `PSIRT_TEMPLATE_DIR` 覆寫預設路徑：
 
       export PSIRT_TEMPLATE_DIR="/path/to/approved/D1-D7-templates"
 
