@@ -33,6 +33,33 @@ For repeated local startup, `sh run.sh` also loads an optional repository-root `
 
 `run.sh` 是本機開發入口，只監聽 `127.0.0.1:8765`。正式部署需由 WSGI 服務管理應用程序，並經公司內部 HTTPS 反向代理提供存取；PostgreSQL port 僅允許應用伺服器連線。
 
+## Docker Compose 本機啟動
+
+需安裝 Docker Engine 與 Docker Compose。首次使用時，在 repository 根目錄建立 `.env.local`，以下指令會產生固定的隨機密碼與金鑰；檔案已存在時不會覆寫：
+
+    (umask 077; set -C; python3 - <<'PY' > .env.local
+    import base64
+    import secrets
+    print(f"PSIRT_POSTGRES_PASSWORD={secrets.token_hex(32)}")
+    print(f"PSIRT_SESSION_SECRET={secrets.token_hex(32)}")
+    print(f"PSIRT_ENCRYPTION_KEY={base64.b64encode(secrets.token_bytes(32)).decode('ascii')}")
+    PY
+    )
+
+`PSIRT_POSTGRES_PASSWORD` 使用十六進位字元，讓密碼可直接用於連線 URL。請妥善保存 `.env.local`，不要提交至 Git，也不要在已有案件資料後重新產生加密金鑰。Compose 不會自動讀取 `.env.local`，每次操作都需指定：
+
+    docker compose --env-file .env.local up --build -d
+    docker compose --env-file .env.local ps
+    docker compose --env-file .env.local logs -f app
+
+開啟 <http://127.0.0.1:8765>。應用容器使用 Gunicorn，等待 PostgreSQL 健康檢查通過後執行 `manage_db.py upgrade`，再啟動 Web 服務；`/health` 亦用於應用容器健康檢查。D1–D7 範本會從 `form/` 複製進映像，修改程式或範本後需重新執行上述建置指令。
+
+PostgreSQL 不對主機發布連接埠，資料保存在 `postgres_data` named volume。停止服務時執行：
+
+    docker compose --env-file .env.local down
+
+`down` 會保留資料；`down -v` 會刪除資料庫 volume 及其中所有案件。此 Compose 設定僅供本機開發，自動升級 schema 使用與應用相同的資料庫帳號；正式部署仍須依前述要求分離維護權限、設定 HTTPS、登入與授權。
+
 ## PostgreSQL 整合測試
 
 測試只連接名稱以 `_test` 結尾的專用 PostgreSQL database，並在其中建立唯一暫存 schema；結束後只刪除該暫存 schema。測試不會清空 database 或碰觸正式 schema。

@@ -1,0 +1,49 @@
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8765:8765"
+    environment:
+      PSIRT_DATABASE_URL: "postgresql://psirt_app:${PSIRT_POSTGRES_PASSWORD:?Set PSIRT_POSTGRES_PASSWORD to a random hex password}@db:5432/psirt"
+      PSIRT_SESSION_SECRET: "${PSIRT_SESSION_SECRET:?Set a persistent random secret of at least 32 characters}"
+      PSIRT_ENCRYPTION_KEY: "${PSIRT_ENCRYPTION_KEY:?Set a persistent Base64-encoded 32-byte key}"
+      PSIRT_DB_POOL_SIZE: "${PSIRT_DB_POOL_SIZE:-5}"
+      PSIRT_COOKIE_SECURE: "${PSIRT_COOKIE_SECURE:-0}"
+    depends_on:
+      db:
+        condition: service_healthy
+    # Automatic schema upgrades are intended for local development only.
+    command:
+      - /bin/sh
+      - -c
+      - python manage_db.py upgrade && exec gunicorn --bind 0.0.0.0:8765 --workers 2 --access-logfile - --error-logfile - app:app
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/health', timeout=5).close()"
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  db:
+    image: postgres:16-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: psirt
+      POSTGRES_USER: psirt_app
+      POSTGRES_PASSWORD: "${PSIRT_POSTGRES_PASSWORD:?Set PSIRT_POSTGRES_PASSWORD to a random hex password}"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+volumes:
+  postgres_data:

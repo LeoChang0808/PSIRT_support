@@ -1,0 +1,14 @@
+.git
+.venv
+.data
+.env
+.env.*
+.serena
+.agents
+.codex
+.aws
+__pycache__
+*.py[cod]
+*.enc
+*.tmp
+.DS_Store

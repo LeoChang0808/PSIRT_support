@@ -1,4 +1,5 @@
 Flask>=3.0,<4
+gunicorn>=23,<24
 cryptography>=42,<47
 reportlab>=4.0,<5
 psycopg[binary,pool]>=3.2,<4
