@@ -1,5 +1,6 @@
 (() => {
   const csrf = document.querySelector('meta[name="csrf-token"]')?.content || "";
+  const appRoot = document.querySelector('meta[name="application-root"]')?.content || "";
   const saveIndicator = document.getElementById("save-indicator");
   const exportReadinessNode = document.getElementById("export-readiness");
   let exportReadiness = {};
@@ -186,7 +187,7 @@
         try {
           const result = await enqueueStorageWrite(async () => {
             const response = await fetch(
-              "/api/cases/" + encodeURIComponent(stepForm.dataset.caseId) + "/auto-save",
+              appRoot + "/api/cases/" + encodeURIComponent(stepForm.dataset.caseId) + "/auto-save",
               {
                 method: "POST",
                 headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
@@ -315,7 +316,7 @@
           const result = await enqueueStorageWrite(async () => {
             data.storage_version = Number(stepForm.dataset.storageVersion || 0);
             const response = await fetch(
-              "/api/cases/" + encodeURIComponent(stepForm.dataset.caseId) + "/evidence",
+              appRoot + "/api/cases/" + encodeURIComponent(stepForm.dataset.caseId) + "/evidence",
               {
                 method: "POST",
                 headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
@@ -436,7 +437,7 @@
     const saveAwarenessNow = () => enqueueStorageWrite(async () => {
       const payload = formObject(awarenessForm);
       const response = await fetch(
-        "/api/cases/" + encodeURIComponent(awarenessForm.dataset.caseId) + "/awareness",
+        appRoot + "/api/cases/" + encodeURIComponent(awarenessForm.dataset.caseId) + "/awareness",
         {
           method: "POST",
           headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
