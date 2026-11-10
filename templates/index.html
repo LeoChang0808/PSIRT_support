@@ -5,7 +5,7 @@
   <div>
     <p class="eyebrow">LOCAL CASE WORKSPACE</p>
     <h1>CRA 通報案件</h1>
-    <p class="hero-copy">依程序書 7.1–7.9 逐步填寫，完成後統一匯出 D1–D7 表單；SRP 填報資料 PDF 依階段提供。</p>
+    <p class="hero-copy">依程序書 7.1–7.9 逐步填寫，可隨案件進度匯出 D1–D7 表單；SRP 填報資料 PDF 依階段提供。</p>
   </div>
   <form action="{{ url_for('create_case') }}" method="post">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -21,7 +21,7 @@
 {% endif %}
 
 <section class="section-heading">
-  <div><h2>案件清單</h2><p>案件內容保存在本機加密資料庫。</p></div>
+  <div><h2>案件清單</h2><p>案件內容保存在受控 PostgreSQL；案件 payload 已加密。</p></div>
   <div class="section-heading-actions">
     <span class="count-pill">{{ cases|length }} 件</span>
     <a class="button secondary" href="{{ url_for('trash') }}">垃圾桶 <span class="trash-count">{{ trashed_count }}</span></a>
@@ -55,7 +55,7 @@
   <div class="empty-state">
     <div class="empty-icon">＋</div>
     <h3>還沒有案件</h3>
-    <p>建立案件後，系統會依程序書 7.1–7.9 引導填寫；全部完成後才能統一匯出 D1–D7 表單。</p>
+    <p>建立案件後，系統會依程序書 7.1–7.9 引導填寫；各階段均可匯出 D1–D7，未完成項目會列出提醒。</p>
     <form action="{{ url_for('create_case') }}" method="post">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <button class="button secondary" type="submit">建立第一個案件</button>

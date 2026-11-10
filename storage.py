@@ -1,36 +1,34 @@
-"""Encrypted local case storage.
-
-SQLite stores only opaque identifiers and timestamps in clear text. Case
-payloads are encrypted with AES-GCM; the key is kept in macOS Keychain.
-"""
+"""PostgreSQL-backed encrypted case storage."""
 from __future__ import annotations
 
 import base64
 import getpass
 import json
 import os
-import re
 import secrets
-import sqlite3
 import subprocess
 import sys
-import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from psycopg.rows import dict_row
+from psycopg_pool import ConnectionPool
 
 KEYCHAIN_SERVICE = "PSIRT-CRA-Local-Reporting-UI"
-DATABASE_MAGIC = b"PSIRTDB1"
+SCHEMA_VERSION = 1
+SCHEMA_LOCK_ID = 731904261
+_STORAGE_VERSION_KEY = "_storage_version"
 
 
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 def _load_or_create_key() -> bytes:
-    """Load a 256-bit key from Keychain; require an explicit key elsewhere."""
+    """Load the shared 256-bit payload key from Keychain or the environment."""
+    configured = os.environ.get("PSIRT_ENCRYPTION_KEY", "")
     if sys.platform == "darwin" and Path("/usr/bin/security").exists():
         account = getpass.getuser()
         find = subprocess.run(
@@ -47,6 +45,15 @@ def _load_or_create_key() -> bytes:
                 raise RuntimeError("macOS Keychain 中的案件加密金鑰長度錯誤。")
             return key
 
+        if configured:
+            try:
+                key = base64.b64decode(configured, validate=True)
+            except ValueError as exc:
+                raise RuntimeError("PSIRT_ENCRYPTION_KEY 必須是 Base64 格式的 32-byte 金鑰。") from exc
+            if len(key) != 32:
+                raise RuntimeError("PSIRT_ENCRYPTION_KEY 解碼後必須為 32 bytes。")
+            return key
+
         key = secrets.token_bytes(32)
         encoded = base64.b64encode(key).decode("ascii")
         add = subprocess.run(
@@ -57,11 +64,10 @@ def _load_or_create_key() -> bytes:
         if add.returncode != 0:
             raise RuntimeError(
                 "無法在 macOS Keychain 建立案件加密金鑰。請確認登入 Keychain 已解鎖，"
-                "並檢查「安全性與隱私權」設定。"
+                "或設定由秘密管理服務保管的 PSIRT_ENCRYPTION_KEY。"
             )
         return key
 
-    configured = os.environ.get("PSIRT_ENCRYPTION_KEY", "")
     if configured:
         try:
             key = base64.b64decode(configured, validate=True)
@@ -71,200 +77,236 @@ def _load_or_create_key() -> bytes:
             raise RuntimeError("PSIRT_ENCRYPTION_KEY 解碼後必須為 32 bytes。")
         return key
     raise RuntimeError(
-        "此平台沒有 macOS Keychain。請先設定 PSIRT_ENCRYPTION_KEY（Base64 編碼的 32-byte 金鑰），"
-        "再啟動服務；系統不會以明文保存案件資料。"
+        "請設定 PSIRT_ENCRYPTION_KEY（Base64 編碼的 32-byte 金鑰），"
+        "並由作業系統或公司核准的秘密管理服務保管。"
     )
 
 
-class EncryptedCaseStore:
-    def __init__(self, database_path: Path, key: bytes | None = None):
-        self.database_path = Path(database_path)
-        self.database_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        try:
-            os.chmod(self.database_path.parent, 0o700)
-        except OSError:
-            pass
-        self._key = key or _load_or_create_key()
-        self._cipher = AESGCM(self._key)
-        self._lock = threading.RLock()
-        self._db = sqlite3.connect(":memory:", check_same_thread=False)
-        self._db.row_factory = sqlite3.Row
-        self._db.execute("PRAGMA journal_mode=MEMORY")
-        self._db.execute("PRAGMA secure_delete=ON")
-        self._initialize()
+class StoreConflictError(RuntimeError):
+    """Raised when a browser submits a case revision that is no longer current."""
 
-    def _initialize(self) -> None:
-        if self.database_path.exists():
-            envelope = self.database_path.read_bytes()
-            if not envelope.startswith(DATABASE_MAGIC) or len(envelope) < len(DATABASE_MAGIC) + 12 + 16:
-                raise RuntimeError("案件資料庫加密檔格式無效；請勿覆寫原始資料。")
-            nonce_start = len(DATABASE_MAGIC)
-            nonce = envelope[nonce_start:nonce_start + 12]
-            ciphertext = envelope[nonce_start + 12:]
-            try:
-                image = self._cipher.decrypt(nonce, ciphertext, DATABASE_MAGIC)
-                self._db.deserialize(image)
-            except Exception as exc:
-                raise RuntimeError(
-                    "案件資料庫無法解密。請確認 Keychain 金鑰未被重設，也不要覆寫原始檔。"
-                ) from exc
-        self._db.execute(
-                """CREATE TABLE IF NOT EXISTS cases (
-                    case_id TEXT PRIMARY KEY,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    nonce BLOB NOT NULL,
-                    encrypted_payload BLOB NOT NULL
-                )"""
-            )
-        self._db.execute(
-            """CREATE TABLE IF NOT EXISTS app_meta (
-                meta_key TEXT PRIMARY KEY,
-                meta_value TEXT NOT NULL
-            )"""
-        )
 
-        if not self.database_path.exists():
-            self._persist()
-
-    def _persist(self) -> None:
-        image = self._db.serialize()
-        nonce = secrets.token_bytes(12)
-        ciphertext = self._cipher.encrypt(nonce, image, DATABASE_MAGIC)
-        envelope = DATABASE_MAGIC + nonce + ciphertext
-        temporary = self.database_path.with_name(self.database_path.name + ".tmp")
-        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        try:
-            with os.fdopen(descriptor, "wb") as handle:
-                handle.write(envelope)
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.replace(temporary, self.database_path)
-            os.chmod(self.database_path, 0o600)
-        finally:
-            try:
-                temporary.unlink(missing_ok=True)
-            except OSError:
-                pass
-
-    def save(self, payload: dict[str, Any]) -> None:
-        case_id = str(payload["id"])
-        now = _now()
-        nonce = secrets.token_bytes(12)
-        plaintext = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-        ciphertext = self._cipher.encrypt(nonce, plaintext, case_id.encode("utf-8"))
-        with self._lock:
-            with self._db:
-                db = self._db
-                previous = db.execute(
-                    "SELECT created_at FROM cases WHERE case_id=?", (case_id,)
-                ).fetchone()
-                created_at = previous["created_at"] if previous else now
-                db.execute(
-                    """INSERT INTO cases(case_id, created_at, updated_at, nonce, encrypted_payload)
-                       VALUES(?, ?, ?, ?, ?)
-                       ON CONFLICT(case_id) DO UPDATE SET
-                         updated_at=excluded.updated_at,
-                         nonce=excluded.nonce,
-                         encrypted_payload=excluded.encrypted_payload""",
-                    (case_id, created_at, now, nonce, ciphertext),
+def apply_postgres_schema(conninfo: str) -> int:
+    """Apply the initial schema migration under an advisory transaction lock."""
+    if not conninfo.strip():
+        raise RuntimeError("請設定 PSIRT_DATABASE_URL。")
+    pool = ConnectionPool(
+        conninfo=conninfo,
+        min_size=1,
+        max_size=1,
+        timeout=10,
+        kwargs={"row_factory": dict_row},
+        open=True,
+    )
+    try:
+        with pool.connection() as conn:
+            with conn.transaction():
+                conn.execute("SELECT pg_advisory_xact_lock(%s)", (SCHEMA_LOCK_ID,))
+                conn.execute(
+                    """CREATE TABLE IF NOT EXISTS schema_migrations (
+                        version INTEGER PRIMARY KEY,
+                        applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                    )"""
                 )
-            self._persist()
+                row = conn.execute(
+                    "SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1"
+                ).fetchone()
+                current_version = int(row["version"]) if row else 0
+                if current_version > SCHEMA_VERSION:
+                    raise RuntimeError(
+                        f"資料庫版本 {current_version} 比此程式新；請使用相容版本。"
+                    )
+                if current_version == 0:
+                    conn.execute(
+                        """CREATE TABLE cases (
+                            case_id TEXT PRIMARY KEY,
+                            created_at TIMESTAMPTZ NOT NULL,
+                            updated_at TIMESTAMPTZ NOT NULL,
+                            nonce BYTEA NOT NULL CHECK (octet_length(nonce) = 12),
+                            encrypted_payload BYTEA NOT NULL,
+                            version BIGINT NOT NULL DEFAULT 1 CHECK (version >= 1)
+                        )"""
+                    )
+                    conn.execute(
+                        "CREATE INDEX cases_updated_at_idx ON cases (updated_at DESC)"
+                    )
+                    conn.execute(
+                        """CREATE TABLE case_number_sequences (
+                            year INTEGER PRIMARY KEY CHECK (year BETWEEN 1000 AND 9999),
+                            last_number INTEGER NOT NULL CHECK (last_number BETWEEN 0 AND 9999)
+                        )"""
+                    )
+                    conn.execute(
+                        "INSERT INTO schema_migrations(version) VALUES (%s)",
+                        (SCHEMA_VERSION,),
+                    )
+                    current_version = SCHEMA_VERSION
+                if current_version != SCHEMA_VERSION:
+                    raise RuntimeError(
+                        f"資料庫版本為 {current_version}，程式需要版本 {SCHEMA_VERSION}；"
+                        "請先執行資料庫升級程序。"
+                    )
+        return current_version
+    finally:
+        pool.close()
+
+
+class PostgresCaseStore:
+    """Store encrypted case payloads in PostgreSQL with optimistic locking."""
+
+    def __init__(
+        self,
+        conninfo: str,
+        key: bytes | None = None,
+        pool_size: int = 5,
+    ):
+        if not conninfo.strip():
+            raise RuntimeError("請設定 PSIRT_DATABASE_URL。")
+        if pool_size < 1:
+            raise ValueError("資料庫連線池大小必須至少為 1。")
+        self._key = key if key is not None else _load_or_create_key()
+        if len(self._key) != 32:
+            raise ValueError("案件加密金鑰必須是 32 bytes。")
+        self._cipher = AESGCM(self._key)
+        self._pool = ConnectionPool(
+            conninfo=conninfo,
+            min_size=1,
+            max_size=pool_size,
+            timeout=10,
+            kwargs={"row_factory": dict_row},
+            open=True,
+        )
+        try:
+            with self._pool.connection() as conn:
+                row = conn.execute(
+                    "SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1"
+                ).fetchone()
+            if row is None or int(row["version"]) != SCHEMA_VERSION:
+                raise RuntimeError(
+                    f"PostgreSQL schema 尚未升級至版本 {SCHEMA_VERSION}；"
+                    "請先執行 python manage_db.py upgrade。"
+                )
+        except RuntimeError:
+            self._pool.close()
+            raise
+        except Exception as exc:
+            self._pool.close()
+            raise RuntimeError(
+                "無法驗證 PostgreSQL schema；請確認資料庫已執行 python manage_db.py upgrade，"
+                "且應用程式帳號具有必要讀取權限。"
+            ) from exc
+
+    def ping(self) -> bool:
+        with self._pool.connection() as conn:
+            return conn.execute("SELECT 1 AS ok").fetchone()["ok"] == 1
+
+    def close(self) -> None:
+        self._pool.close()
+
+    def save(self, payload: dict[str, Any]) -> int:
+        case_id = str(payload["id"])
+        expected_version = payload.get(_STORAGE_VERSION_KEY)
+        nonce = secrets.token_bytes(12)
+        stored_payload = {
+            key: value for key, value in payload.items() if key != _STORAGE_VERSION_KEY
+        }
+        plaintext = json.dumps(
+            stored_payload, ensure_ascii=False, separators=(",", ":")
+        ).encode("utf-8")
+        ciphertext = self._cipher.encrypt(nonce, plaintext, case_id.encode("utf-8"))
+        now = _now()
+
+        with self._pool.connection() as conn:
+            if expected_version is None:
+                row = conn.execute(
+                    """INSERT INTO cases(
+                           case_id, created_at, updated_at, nonce, encrypted_payload, version
+                       ) VALUES (%s, %s, %s, %s, %s, 1)
+                       ON CONFLICT (case_id) DO NOTHING
+                       RETURNING version""",
+                    (case_id, now, now, nonce, ciphertext),
+                ).fetchone()
+            else:
+                try:
+                    expected_version = int(expected_version)
+                except (TypeError, ValueError) as exc:
+                    raise StoreConflictError("案件版本資訊無效，請重新載入案件。") from exc
+                row = conn.execute(
+                    """UPDATE cases
+                       SET updated_at = %s, nonce = %s, encrypted_payload = %s,
+                           version = version + 1
+                       WHERE case_id = %s AND version = %s
+                       RETURNING version""",
+                    (now, nonce, ciphertext, case_id, expected_version),
+                ).fetchone()
+            if row is None:
+                raise StoreConflictError(
+                    "此案件在您開啟後已被其他工作階段更新或刪除。"
+                    "請先複製尚未保存的內容，再重新載入最新案件。"
+                )
+            new_version = int(row["version"])
+
+        payload[_STORAGE_VERSION_KEY] = new_version
+        return new_version
 
     def next_case_number(self, year: int) -> str:
-        """Allocate a per-year CRA case number without reusing deleted numbers."""
-        year_text = f"{int(year):04d}"
-        meta_key = f"case-number-sequence:{year_text}"
-        pattern = re.compile(rf"^CRA-{re.escape(year_text)}-(\d{{4}})$")
-        with self._lock:
-            row = self._db.execute(
-                "SELECT meta_value FROM app_meta WHERE meta_key=?", (meta_key,)
-            ).fetchone()
-            last_number = int(row["meta_value"]) if row is not None else 0
-            rows = self._db.execute(
-                "SELECT case_id, nonce, encrypted_payload FROM cases"
-            ).fetchall()
-            for case_row in rows:
-                try:
-                    plaintext = self._cipher.decrypt(
-                        case_row["nonce"], case_row["encrypted_payload"],
-                        case_row["case_id"].encode("utf-8"),
-                    )
-                    payload = json.loads(plaintext.decode("utf-8"))
-                except Exception as exc:
-                    raise RuntimeError(
-                        f"案件 {case_row['case_id']} 無法解密；請檢查 Keychain 金鑰。"
-                    ) from exc
-                match = pattern.fullmatch(str(payload.get("case_number", "")))
-                if match:
-                    last_number = max(last_number, int(match.group(1)))
-
-            next_number = last_number + 1
-            if next_number > 9999:
-                raise ValueError(f"{year_text} 年的 CRA 案件編號已達 9999，無法再自動產生。")
-            with self._db:
-                self._db.execute(
-                    """INSERT INTO app_meta(meta_key, meta_value) VALUES(?, ?)
-                       ON CONFLICT(meta_key) DO UPDATE SET meta_value=excluded.meta_value""",
-                    (meta_key, str(next_number)),
-                )
-            self._persist()
-            return f"CRA-{year_text}-{next_number:04d}"
-
-    def get(self, case_id: str) -> dict[str, Any] | None:
-        with self._lock:
-            row = self._db.execute(
-                "SELECT nonce, encrypted_payload FROM cases WHERE case_id=?",
-                (case_id,),
+        year_number = int(year)
+        if not 1000 <= year_number <= 9999:
+            raise ValueError("案件編號年份必須介於 1000 至 9999。")
+        with self._pool.connection() as conn:
+            row = conn.execute(
+                """INSERT INTO case_number_sequences(year, last_number)
+                   VALUES (%s, 1)
+                   ON CONFLICT (year) DO UPDATE
+                   SET last_number = case_number_sequences.last_number + 1
+                   WHERE case_number_sequences.last_number < 9999
+                   RETURNING last_number""",
+                (year_number,),
             ).fetchone()
         if row is None:
-            return None
+            raise ValueError(f"{year_number} 年的 CRA 案件編號已達 9999，無法再自動產生。")
+        return f"CRA-{year_number:04d}-{int(row['last_number']):04d}"
+
+    def _decode_row(self, row: dict[str, Any]) -> dict[str, Any]:
+        case_id = str(row["case_id"])
         try:
             plaintext = self._cipher.decrypt(
-                row["nonce"], row["encrypted_payload"], case_id.encode("utf-8")
+                bytes(row["nonce"]), bytes(row["encrypted_payload"]), case_id.encode("utf-8")
             )
             payload = json.loads(plaintext.decode("utf-8"))
         except Exception as exc:
             raise RuntimeError(
-                "案件資料無法解密。請確認 Keychain 金鑰未被重設，也不要覆寫資料庫。"
+                f"案件 {case_id} 無法解密；請確認 PSIRT_ENCRYPTION_KEY 未被變更。"
             ) from exc
+        if not isinstance(payload, dict) or str(payload.get("id", "")) != case_id:
+            raise RuntimeError(f"案件 {case_id} 的資料格式或識別碼無效。")
+        payload[_STORAGE_VERSION_KEY] = int(row["version"])
         return payload
 
+    def get(self, case_id: str) -> dict[str, Any] | None:
+        with self._pool.connection() as conn:
+            row = conn.execute(
+                """SELECT case_id, nonce, encrypted_payload, version
+                   FROM cases WHERE case_id = %s""",
+                (case_id,),
+            ).fetchone()
+        return self._decode_row(row) if row is not None else None
+
     def list(self) -> list[dict[str, Any]]:
-        with self._lock:
-            rows = self._db.execute(
-                "SELECT case_id, nonce, encrypted_payload FROM cases ORDER BY updated_at DESC"
+        with self._pool.connection() as conn:
+            rows = conn.execute(
+                """SELECT case_id, nonce, encrypted_payload, version
+                   FROM cases ORDER BY updated_at DESC"""
             ).fetchall()
-        cases: list[dict[str, Any]] = []
-        for row in rows:
-            case_id = row["case_id"]
-            try:
-                plaintext = self._cipher.decrypt(
-                    row["nonce"], row["encrypted_payload"], case_id.encode("utf-8")
-                )
-                cases.append(json.loads(plaintext.decode("utf-8")))
-            except Exception as exc:
-                raise RuntimeError(
-                    f"案件 {case_id} 無法解密；請檢查 Keychain 金鑰。"
-                ) from exc
-        return cases
+        return [self._decode_row(row) for row in rows]
 
     def delete_many(self, case_ids: list[str]) -> int:
-        """Permanently remove encrypted case records and persist the snapshot."""
         identifiers = list(dict.fromkeys(str(case_id) for case_id in case_ids if case_id))
         if not identifiers:
             return 0
-        with self._lock:
-            with self._db:
-                before = self._db.total_changes
-                self._db.executemany(
-                    "DELETE FROM cases WHERE case_id=?",
-                    ((case_id,) for case_id in identifiers),
-                )
-                deleted = self._db.total_changes - before
-            if deleted:
-                self._persist()
-            return deleted
+        with self._pool.connection() as conn:
+            cursor = conn.execute("DELETE FROM cases WHERE case_id = ANY(%s)", (identifiers,))
+            return cursor.rowcount
 
     def delete(self, case_id: str) -> bool:
         return self.delete_many([case_id]) > 0

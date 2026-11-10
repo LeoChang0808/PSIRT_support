@@ -19,7 +19,7 @@ from forms import (
     shared_field_key,
 )
 from report_pdf import STAGE_LABELS, build_srp_pdf
-from storage import EncryptedCaseStore
+from storage import PostgresCaseStore, StoreConflictError
 from submission import current_submission, submission_key, submission_state
 from srp_fields import (
     ENISA_GLOSSARY_CHECKED, ENISA_GLOSSARY_UPDATED, ENISA_GLOSSARY_URL,
@@ -30,8 +30,8 @@ from xlsx_export import build_xlsx
 
 APP_DIR = Path(__file__).resolve().parent
 TEMPLATE_DIR = Path(os.environ.get("PSIRT_TEMPLATE_DIR", APP_DIR / "form")).expanduser()
-DATA_DIR = Path(os.environ.get("PSIRT_DATA_DIR", APP_DIR / ".data")).expanduser()
-DATABASE_PATH = DATA_DIR / "cases.sqlite3.enc"
+DATABASE_URL = os.environ.get("PSIRT_DATABASE_URL", "")
+DATABASE_POOL_SIZE = int(os.environ.get("PSIRT_DB_POOL_SIZE", "5"))
 
 STEP_ORDER = ("7.1", "7.2", "7.3", "7.4", "7.5", "7.6", "7.7", "7.8", "7.9")
 STEP_TITLES = {
@@ -65,7 +65,7 @@ STEP_HELP = {
     "7.6": "更新 72 小時 Notification 的技術影響、緩解措施與未知事項；SRP 仍由人員手動操作。",
     "7.7": "此步驟與 7.5、7.6 平行啟動，不等待修補或前述提交；記錄通知對象、措施與送達證據。",
     "7.8": "持續更新調查與使用者通知；僅在 CSIRT 明確要求時勾選並準備 Intermediate Report。",
-    "7.9": "完成最終報告、期限與結案核對，整理 Evidence 索引；全部步驟完成後統一匯出 D1–D7。",
+    "7.9": "完成最終報告、期限與結案核對，整理 Evidence 索引；任何階段均可匯出 D1–D7，未完成項目會提示但不阻擋匯出。",
 }
 FORM_TITLES = {
     "D1": "產品與 CRA 適用性清冊",
@@ -141,13 +141,18 @@ D7_REVIEW_FIELDS = (
 SCHEMA, MISSING_TEMPLATES = load_form_schema(TEMPLATE_DIR)
 if not (TEMPLATE_DIR / D7_TEMPLATE_FILE).exists():
     MISSING_TEMPLATES.append(D7_TEMPLATE_FILE)
-STORE = EncryptedCaseStore(DATABASE_PATH)
+SESSION_SECRET = os.environ.get("PSIRT_SESSION_SECRET", "")
+if len(SESSION_SECRET) < 32:
+    raise RuntimeError("請設定至少 32 個字元的 PSIRT_SESSION_SECRET，且所有應用程序必須共用同一值。")
+
+STORE = PostgresCaseStore(DATABASE_URL, pool_size=DATABASE_POOL_SIZE)
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("PSIRT_SESSION_SECRET") or secrets.token_hex(32)
+app.secret_key = SESSION_SECRET
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=os.environ.get("PSIRT_COOKIE_SECURE", "0") == "1",
     MAX_CONTENT_LENGTH=2 * 1024 * 1024,
 )
 
@@ -167,6 +172,18 @@ def _check_csrf() -> None:
         supplied = request.form.get("csrf_token", supplied)
     if not expected or not secrets.compare_digest(expected, supplied):
         abort(400, description="表單安全憑證已失效，請重新載入頁面。")
+
+
+def _require_current_version(case: dict, submitted_version: object) -> None:
+    try:
+        client_version = int(submitted_version)
+    except (TypeError, ValueError) as exc:
+        raise StoreConflictError("案件版本資訊缺失或無效，請重新載入案件。") from exc
+    if client_version != int(case.get("_storage_version", -1)):
+        raise StoreConflictError(
+            "此案件在您開啟後已被其他工作階段更新。"
+            "請先複製尚未保存的內容，再重新載入最新案件。"
+        )
 
 
 def _local_now() -> str:
@@ -783,9 +800,12 @@ def case_page(case_id: str):
     step = LEGACY_STEP_MAP.get(step, step)
     if step not in STEP_ORDER:
         step = case.get("current_step", "7.1")
+    previous_step = case.get("current_step")
+    previous_stage = case.get("srp", {}).get("stage")
     _set_report_stage(case, step)
     case["current_step"] = step
-    STORE.save(case)
+    if previous_step != step or previous_stage != case.get("srp", {}).get("stage"):
+        STORE.save(case)
     return _render_case(case, step)
 
 
@@ -795,6 +815,7 @@ def save_step(case_id: str, step: str):
     if step not in STEP_ORDER:
         abort(404)
     case = _case_or_404(case_id)
+    _require_current_version(case, request.form.get("storage_version"))
     values = request.form.to_dict(flat=True)
     if request.form.getlist("intermediate_requested"):
         values["intermediate_requested"] = request.form.getlist("intermediate_requested")[-1]
@@ -815,6 +836,7 @@ def auto_save(case_id: str):
     _check_csrf()
     case = _case_or_404(case_id)
     body = request.get_json(silent=True) or {}
+    _require_current_version(case, body.get("storage_version"))
     step = body.get("step", "")
     values = body.get("values", {})
     if step not in STEP_ORDER or not isinstance(values, dict):
@@ -826,6 +848,7 @@ def auto_save(case_id: str):
     STORE.save(case)
     result = {
         "ok": True,
+        "storage_version": case["_storage_version"],
         "saved_at": case["updated_local"],
         "export_readiness": _export_readiness(case),
     }
@@ -843,6 +866,7 @@ def create_evidence(case_id: str):
     _check_csrf()
     case = _case_or_404(case_id)
     body = request.get_json(silent=True) or {}
+    _require_current_version(case, body.get("storage_version"))
     evidence_id = str(body.get("evidence_id", "")).strip()
     if not evidence_id:
         return jsonify({"ok": False, "error": "請填寫 Evidence ID。"}), 400
@@ -892,6 +916,7 @@ def create_evidence(case_id: str):
     return jsonify({
         "ok": True,
         "evidence": record,
+        "storage_version": case["_storage_version"],
         "saved_at": case["updated_local"],
         "export_readiness": _export_readiness(case),
     })
@@ -902,6 +927,7 @@ def save_awareness(case_id: str):
     _check_csrf()
     case = _case_or_404(case_id)
     body = request.get_json(silent=True) or {}
+    _require_current_version(case, body.get("storage_version"))
     error = _apply_awareness(case, body)
     if error:
         return jsonify({"ok": False, "error": error}), 400
@@ -909,6 +935,7 @@ def save_awareness(case_id: str):
     STORE.save(case)
     return jsonify({
         "ok": True,
+        "storage_version": case["_storage_version"],
         "deadlines": {
             "24": deadline_iso(case, 24),
             "72": deadline_iso(case, 72),
@@ -986,7 +1013,11 @@ def export_bundle(case_id: str):
 
 @app.get("/health")
 def health():
-    return jsonify({"status": "ok", "bind": "127.0.0.1"})
+    try:
+        STORE.ping()
+    except Exception:
+        return jsonify({"status": "unavailable", "database": "unavailable"}), 503
+    return jsonify({"status": "ok", "database": "ok"})
 
 
 def _safe_filename(value: str) -> str:
@@ -1011,6 +1042,16 @@ def not_found(error):
     return make_response(render_template("error.html", code=404, message="找不到指定案件。"), 404)
 
 
+@app.errorhandler(StoreConflictError)
+def storage_conflict(error):
+    if request.path.startswith("/api/"):
+        return jsonify({"ok": False, "error": str(error), "reload_required": True}), 409
+    return make_response(
+        render_template("error.html", code=409, message=str(error)),
+        409,
+    )
+
+
 @app.errorhandler(503)
 def service_unavailable(error):
     return make_response(
@@ -1025,6 +1066,6 @@ def service_unavailable(error):
 if __name__ == "__main__":
     port = int(os.environ.get("PSIRT_PORT", "8765"))
     print(f"PSIRT CRA 本機輔助平台： http://127.0.0.1:{port}")
-    print(f"加密資料庫位置：{DATABASE_PATH}")
+    print("案件資料儲存於已設定的 PostgreSQL；連線資訊不輸出。")
     app.run(host="127.0.0.1", port=port, debug=False, use_reloader=False)
 

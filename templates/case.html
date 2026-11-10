@@ -87,8 +87,10 @@
 
     <form id="step-form" class="step-form" method="post"
           action="{{ url_for('save_step', case_id=case.id, step=step) }}"
-          data-case-id="{{ case.id }}" data-step="{{ step }}">
+          data-case-id="{{ case.id }}" data-step="{{ step }}"
+          data-storage-version="{{ case.get('_storage_version', 0) }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="storage_version" value="{{ case.get('_storage_version', 0) }}">
       <input type="hidden" name="intent" value="save" id="form-intent">
 
       {% if step == "7.3" %}
@@ -352,8 +354,10 @@
       <span class="flow-count">{{ case.steps.values()|select('equalto','completed')|list|length }}/9</span>
     </div>
 
-    <form class="awareness-card" id="awareness-form" data-case-id="{{ case.id }}">
+    <form class="awareness-card" id="awareness-form" data-case-id="{{ case.id }}"
+          data-storage-version="{{ case.get('_storage_version', 0) }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="storage_version" value="{{ case.get('_storage_version', 0) }}">
       <div class="awareness-title"><span class="clock-icon">◷</span><div><strong>Awareness Time 起算</strong><small>需經權責人員確認</small></div></div>
       <label for="awareness-local">知悉時間</label>
       <input id="awareness-local" name="awareness_local" type="datetime-local"
@@ -428,7 +432,7 @@
 <details class="export-detail">
   <summary>匯出內容與注意事項</summary>
   <div class="export-detail-body">
-    <p>完成程序 7.1–7.9 並標記各步驟完成後，才可一次匯出 D1–D7 範本副本與 SRP 填寫資料 PDF。</p>
+    <p>案件在任一流程階段都可匯出 D1–D7 範本副本與目前 SRP 階段的 PDF。若欄位或步驟尚未完成，匯出前會顯示缺漏提醒；仍可繼續匯出作為草稿核對。</p>
     <p>SRP PDF 依 ENISA Glossary 版本快照列出目前階段適用欄位；SRP AR 仍須核對當前畫面與條件式欄位。PDF 只提供人工填寫參考，不代表 SRP 已輸入或提交。</p>
   </div>
 </details>

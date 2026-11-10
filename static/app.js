@@ -26,7 +26,30 @@
     return Object.fromEntries(data.entries());
   }
 
+  let storageWriteQueue = Promise.resolve();
+  function enqueueStorageWrite(operation) {
+    const result = storageWriteQueue.then(operation, operation);
+    storageWriteQueue = result.catch(() => {});
+    return result;
+  }
+
+  let flushAwarenessSave = async () => {};
   const stepForm = document.getElementById("step-form");
+  const setStorageVersion = (version) => {
+    if (version === undefined || version === null) return;
+    const nextVersion = String(version);
+    if (stepForm) {
+      stepForm.dataset.storageVersion = nextVersion;
+      const stepVersion = stepForm.querySelector("[name='storage_version']");
+      if (stepVersion) stepVersion.value = nextVersion;
+    }
+    const awarenessForm = document.getElementById("awareness-form");
+    if (awarenessForm) {
+      awarenessForm.dataset.storageVersion = nextVersion;
+      const awarenessVersion = awarenessForm.querySelector("[name='storage_version']");
+      if (awarenessVersion) awarenessVersion.value = nextVersion;
+    }
+  };
   if (stepForm) {
     let timer;
     let pending = false;
@@ -161,19 +184,26 @@
         }
         pending = true;
         try {
-          const response = await fetch(
-            "/api/cases/" + encodeURIComponent(stepForm.dataset.caseId) + "/auto-save",
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
-              body: JSON.stringify({
-                step: stepForm.dataset.step,
-                values: formObject(stepForm),
-              }),
-            },
-          );
-          const result = await response.json();
-          if (!response.ok || !result.ok) throw new Error(result.error || "保存失敗");
+          const result = await enqueueStorageWrite(async () => {
+            const response = await fetch(
+              "/api/cases/" + encodeURIComponent(stepForm.dataset.caseId) + "/auto-save",
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
+                body: JSON.stringify({
+                  step: stepForm.dataset.step,
+                  storage_version: Number(stepForm.dataset.storageVersion || 0),
+                  values: formObject(stepForm),
+                }),
+              },
+            );
+            const responseBody = await response.json();
+            if (!response.ok || !responseBody.ok) {
+              throw new Error(responseBody.error || "保存失敗");
+            }
+            setStorageVersion(responseBody.storage_version);
+            return responseBody;
+          });
           setSaveState("已自動保存", "saved");
           if (result.export_readiness) exportReadiness = result.export_readiness;
           if (result.submission_state) setSubmissionBadge(result.submission_state);
@@ -278,19 +308,27 @@
         const data = Object.fromEntries(new FormData(evidenceDialogForm).entries());
         data.step = stepForm.dataset.step;
         data.field_name = activeEvidenceSelect.name;
+        data.storage_version = Number(stepForm.dataset.storageVersion || 0);
         if (evidenceDialogError) evidenceDialogError.textContent = "";
         if (submitButton) submitButton.disabled = true;
         try {
-          const response = await fetch(
-            "/api/cases/" + encodeURIComponent(stepForm.dataset.caseId) + "/evidence",
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
-              body: JSON.stringify(data),
-            },
-          );
-          const result = await response.json();
-          if (!response.ok || !result.ok) throw new Error(result.error || "建立證據失敗。");
+          const result = await enqueueStorageWrite(async () => {
+            data.storage_version = Number(stepForm.dataset.storageVersion || 0);
+            const response = await fetch(
+              "/api/cases/" + encodeURIComponent(stepForm.dataset.caseId) + "/evidence",
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
+                body: JSON.stringify(data),
+              },
+            );
+            const responseBody = await response.json();
+            if (!response.ok || !responseBody.ok) {
+              throw new Error(responseBody.error || "建立證據失敗。");
+            }
+            setStorageVersion(responseBody.storage_version);
+            return responseBody;
+          });
           const evidence = result.evidence;
           if (result.export_readiness) exportReadiness = result.export_readiness;
           stepForm.querySelectorAll("[data-evidence-select]").forEach((select) => {
@@ -330,8 +368,18 @@
       });
     });
 
-    stepForm.addEventListener("submit", () => {
+    stepForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      clearTimeout(timer);
+      saveAgain = false;
       setSaveState("正在保存…", "saving");
+      try {
+        await flushAwarenessSave();
+        await storageWriteQueue;
+        HTMLFormElement.prototype.submit.call(stepForm);
+      } catch (error) {
+        setSaveState(error.message || "保存失敗，請先重試", "error");
+      }
     });
 
     const evidenceList = document.getElementById("evidence-list");
@@ -383,8 +431,33 @@
     let timer;
     let pending = false;
     let saveAgain = false;
+    let dirty = false;
     const status = document.getElementById("awareness-save");
+    const saveAwarenessNow = () => enqueueStorageWrite(async () => {
+      const payload = formObject(awarenessForm);
+      const response = await fetch(
+        "/api/cases/" + encodeURIComponent(awarenessForm.dataset.caseId) + "/awareness",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
+          body: JSON.stringify(payload),
+        },
+      );
+      const responseBody = await response.json();
+      if (!response.ok || !responseBody.ok) {
+        throw new Error(responseBody.error || "保存失敗");
+      }
+      setStorageVersion(responseBody.storage_version);
+      if (responseBody.export_readiness) exportReadiness = responseBody.export_readiness;
+      updateDeadlineCards(
+        responseBody.deadlines,
+        responseBody.deadline_labels,
+        responseBody.awareness?.timezone,
+      );
+      return responseBody;
+    });
     const queueAwarenessSave = () => {
+      dirty = true;
       clearTimeout(timer);
       if (status) status.textContent = "正在保存…";
       timer = setTimeout(async () => {
@@ -394,20 +467,9 @@
         }
         pending = true;
         try {
-          const payload = formObject(awarenessForm);
-          const response = await fetch(
-            "/api/cases/" + encodeURIComponent(awarenessForm.dataset.caseId) + "/awareness",
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
-              body: JSON.stringify(payload),
-            },
-          );
-          const result = await response.json();
-          if (!response.ok || !result.ok) throw new Error(result.error || "保存失敗");
+          await saveAwarenessNow();
+          if (!saveAgain) dirty = false;
           if (status) status.textContent = "已保存";
-          if (result.export_readiness) exportReadiness = result.export_readiness;
-          updateDeadlineCards(result.deadlines, result.deadline_labels, result.awareness?.timezone);
         } catch (error) {
           if (status) status.textContent = error.message || "保存失敗";
         } finally {
@@ -418,6 +480,23 @@
           }
         }
       }, 700);
+    };
+    flushAwarenessSave = async () => {
+      clearTimeout(timer);
+      if (pending) await storageWriteQueue;
+      clearTimeout(timer);
+      saveAgain = false;
+      if (!dirty) return;
+      pending = true;
+      try {
+        await saveAwarenessNow();
+        dirty = false;
+        if (status) status.textContent = "已保存";
+      } finally {
+        pending = false;
+        saveAgain = false;
+        clearTimeout(timer);
+      }
     };
     awarenessForm.querySelectorAll("[data-awareness-autosave]").forEach((field) => {
       field.addEventListener("input", queueAwarenessSave);
