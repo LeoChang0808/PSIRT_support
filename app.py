@@ -345,6 +345,27 @@ def _apply_template_fields(
         if shared_field_key(label) == "case_id" and entry:
             case["case_number"] = entry
 
+def _rewrite_evidence_reference_map(case: dict, replacements: dict[str, str]) -> None:
+    """Keep D1-D6 and SRP receipt links aligned when Evidence IDs change."""
+    replacements = {old: new for old, new in replacements.items() if old and old != new}
+    if not replacements:
+        return
+    for code in ("D1", "D2", "D3", "D4", "D5", "D6"):
+        for row in case.get("forms", {}).get(code, {}).values():
+            if isinstance(row, dict):
+                evidence_id = str(row.get("evidence_id", "")).strip()
+                if evidence_id in replacements:
+                    row["evidence_id"] = replacements[evidence_id]
+    for record in case.get("srp_submissions", {}).values():
+        evidence_id = str(record.get("receipt_evidence_id", "")).strip()
+        if evidence_id in replacements:
+            record["receipt_evidence_id"] = replacements[evidence_id]
+
+
+def _rewrite_evidence_references(case: dict, old_id: str, new_id: str) -> None:
+    _rewrite_evidence_reference_map(case, {old_id: new_id})
+
+
 def _apply_evidence(case: dict, values: dict) -> None:
     metadata = case.setdefault("evidence_meta", {})
     for key in ("custodian", "location"):
@@ -369,12 +390,27 @@ def _apply_evidence(case: dict, values: dict) -> None:
         match = pattern.fullmatch(name)
         if match:
             grouped.setdefault(int(match.group(1)), {})[match.group(2)] = str(value).strip()
+    previous_evidence = list(case.get("evidence", []))
     evidence = []
+    seen_ids: set[str] = set()
+    renamed_ids: list[tuple[str, str]] = []
     for index in sorted(grouped):
         record = grouped[index]
         if any(str(value).strip() for value in record.values()):
+            evidence_id = str(record.get("evidence_id", "")).strip()
+            if not evidence_id:
+                raise ValueError("Evidence ID 不可留空。")
+            if evidence_id in seen_ids:
+                raise ValueError("Evidence ID 不可重複。")
+            record["evidence_id"] = evidence_id
+            seen_ids.add(evidence_id)
+            if index < len(previous_evidence):
+                previous_id = str(previous_evidence[index].get("evidence_id", "")).strip()
+                if previous_id and previous_id != evidence_id:
+                    renamed_ids.append((previous_id, evidence_id))
             evidence.append(record)
     case["evidence"] = evidence
+    _rewrite_evidence_reference_map(case, dict(renamed_ids))
 
 
 def _apply_srp(case: dict, values: dict) -> None:
@@ -464,6 +500,20 @@ def _submission_for_step(case: dict, step: str) -> dict:
         return current_submission(case)
     report_type = case.get("srp", {}).get("type", "AEV")
     return dict(case.get("srp_submissions", {}).get(submission_key(report_type, stage), {}))
+
+
+def _evidence_usages(case: dict) -> dict[str, list[str]]:
+    usages = evidence_references(case, SCHEMA)
+    for key, record in case.get("srp_submissions", {}).items():
+        evidence_id = str(record.get("receipt_evidence_id", "")).strip()
+        if not evidence_id:
+            continue
+        report_type, _, stage = key.partition("_")
+        stage_label = STAGE_LABELS.get(stage, stage)
+        usages.setdefault(evidence_id, []).append(
+            f"SRP · {report_type} · {stage_label} 提交回執"
+        )
+    return usages
 
 
 def _export_readiness(case: dict) -> dict:
@@ -655,7 +705,7 @@ def _render_case(case: dict, step: str):
         "24": deadline_display(case, 24),
         "72": deadline_display(case, 72),
     }
-    references_by_id = evidence_references(case, SCHEMA)
+    references_by_id = _evidence_usages(case)
     evidence_items = []
     for item in case.get("evidence", []):
         obtained_at = str(item.get("obtained_at", ""))
@@ -669,7 +719,6 @@ def _render_case(case: dict, step: str):
             ),
             "timezone": item.get("timezone") or awareness.get("timezone", "Asia/Taipei"),
             "references": references,
-            "can_remove": not references,
         })
     submission_record = _submission_for_step(case, step)
     return render_template(
@@ -849,8 +898,6 @@ def auto_save(case_id: str):
     result = {
         "ok": True,
         "storage_version": case["_storage_version"],
-        "saved_at": case["updated_local"],
-        "export_readiness": _export_readiness(case),
     }
     if step in {"7.5", "7.6", "7.9"} or (
         step == "7.8" and case.get("srp", {}).get("intermediate_requested")
@@ -884,7 +931,10 @@ def create_evidence(case_id: str):
         or (match.group(1), int(match.group(2))) not in valid_rows
     ):
         return jsonify({"ok": False, "error": "無法確認目前要填入 Evidence ID 的欄位，請重新載入頁面。"}), 400
-    if any(item.get("evidence_id") == evidence_id for item in case.get("evidence", [])):
+    if any(
+        item.get("evidence_id") == evidence_id
+        for item in case.get("evidence", [])
+    ):
         return jsonify({"ok": False, "error": "此 Evidence ID 已存在，請使用唯一編號。"}), 409
 
     record = {
@@ -917,8 +967,49 @@ def create_evidence(case_id: str):
         "ok": True,
         "evidence": record,
         "storage_version": case["_storage_version"],
-        "saved_at": case["updated_local"],
-        "export_readiness": _export_readiness(case),
+    })
+
+
+@app.post("/api/cases/<case_id>/evidence/delete")
+def delete_evidence(case_id: str):
+    _check_csrf()
+    case = _case_or_404(case_id)
+    body = request.get_json(silent=True) or {}
+    _require_current_version(case, body.get("storage_version"))
+    evidence_id = str(body.get("evidence_id", "")).strip()
+    if not evidence_id:
+        return jsonify({"ok": False, "error": "請提供 Evidence ID。"}), 400
+    record = next(
+        (
+            item for item in case.get("evidence", [])
+            if item.get("evidence_id") == evidence_id
+        ),
+        None,
+    )
+    if record is None:
+        return jsonify({"ok": False, "error": "找不到指定的證據紀錄。"}), 404
+
+    references = _evidence_usages(case).get(evidence_id, [])
+    if body.get("confirm_delete") is not True:
+        return jsonify({
+            "ok": False,
+            "error": "刪除前需確認此證據及其引用欄位。",
+            "references": references,
+            "requires_confirmation": True,
+        }), 400
+
+    _rewrite_evidence_references(case, evidence_id, "")
+    case["evidence"] = [
+        item for item in case.get("evidence", [])
+        if item.get("evidence_id") != evidence_id
+    ]
+    _record_event(case, f"已刪除 Evidence ID {evidence_id}，並清除 {len(references)} 個引用")
+    STORE.save(case)
+    return jsonify({
+        "ok": True,
+        "deleted_evidence_id": evidence_id,
+        "cleared_reference_count": len(references),
+        "storage_version": case["_storage_version"],
     })
 
 
@@ -945,8 +1036,6 @@ def save_awareness(case_id: str):
             "72": deadline_display(case, 72),
         },
         "awareness": case["awareness"],
-        "saved_at": case["updated_local"],
-        "export_readiness": _export_readiness(case),
     })
 
 

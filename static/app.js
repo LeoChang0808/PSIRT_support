@@ -27,6 +27,51 @@
     return Object.fromEntries(data.entries());
   }
 
+  async function parseApiResponse(response, failureMessage) {
+    let body;
+    try {
+      body = JSON.parse(await response.text());
+    } catch (_error) {
+      throw new Error(`${failureMessage}（HTTP ${response.status}，伺服器回應格式無效）`);
+    }
+    if (!response.ok || !body?.ok) {
+      throw new Error(body?.error || `${failureMessage}（HTTP ${response.status}）`);
+    }
+    return body;
+  }
+
+  const evidenceReadinessDefinitions = [
+    ["evidence_id", "Evidence ID", ""],
+    ["obtained_at", "取得時間", "_picker"],
+    ["timezone", "時區", ""],
+    ["kind", "證據類型", ""],
+    ["description", "內容描述", ""],
+    ["source", "來源", ""],
+    ["location", "受控保存位置", ""],
+    ["custodian", "保管人", ""],
+  ];
+  const appendEvidenceReadiness = (evidence) => {
+    if (!Array.isArray(exportReadiness.fields)) return;
+    let maxIndex = -1;
+    exportReadiness.fields.forEach((field) => {
+      const match = /^evidence__(\d+)__/.exec(field.name || "");
+      if (match) maxIndex = Math.max(maxIndex, Number(match[1]));
+    });
+    exportReadiness.fields = exportReadiness.fields.filter(
+      (field) => field.name !== "evidence__none",
+    );
+    const index = maxIndex + 1;
+    evidenceReadinessDefinitions.forEach(([key, label, pickerSuffix]) => {
+      const name = `evidence__${index}__${key}`;
+      exportReadiness.fields.push({
+        name,
+        picker_name: pickerSuffix ? `${name}${pickerSuffix}` : "",
+        label: `D7 · ${evidence.evidence_id || "證據"} · ${label}`,
+        filled: Boolean(String(evidence[key] || "").trim()),
+      });
+    });
+  };
+
   let storageWriteQueue = Promise.resolve();
   function enqueueStorageWrite(operation) {
     const result = storageWriteQueue.then(operation, operation);
@@ -53,8 +98,7 @@
   };
   if (stepForm) {
     let timer;
-    let pending = false;
-    let saveAgain = false;
+    let latestStepSave = Promise.resolve(true);
     const submissionBadge = stepForm.querySelector(".submission-status");
     const exportWarningDialog = document.getElementById("export-warning-dialog");
     const exportWarningSummary = document.getElementById("export-warning-summary");
@@ -71,13 +115,42 @@
     let pendingExportUrl = "";
     const liveExportReadiness = () => {
       const state = JSON.parse(JSON.stringify(exportReadiness || {}));
+      const evidenceList = document.getElementById("evidence-list");
+      if (evidenceList && Array.isArray(state.fields)) {
+        state.fields = state.fields.filter(
+          (field) => field.name !== "evidence__none" && !/^evidence__\d+__/.test(field.name),
+        );
+        const cards = [...evidenceList.querySelectorAll(".evidence-list-item")];
+        if (!cards.length) {
+          state.fields.push({
+            name: "evidence__none",
+            picker_name: "",
+            label: "D7 · Evidence 索引",
+            filled: false,
+          });
+        }
+        cards.forEach((card, index) => {
+          const evidenceId = card.querySelector(`[name="evidence__${index}__evidence_id"]`)?.value.trim() || "證據";
+          evidenceReadinessDefinitions.forEach(([key, label, pickerSuffix]) => {
+            const name = `evidence__${index}__${key}`;
+            const stored = card.querySelector(`[name="${name}"]`);
+            const pickerName = pickerSuffix ? `${name}${pickerSuffix}` : "";
+            state.fields.push({
+              name,
+              picker_name: pickerName,
+              label: `D7 · ${evidenceId} · ${label}`,
+              filled: Boolean(String(stored?.value || "").trim()),
+            });
+          });
+        });
+      }
       (state.fields || []).forEach((field) => {
         const stored = [...document.querySelectorAll("[name]")].find((item) => item.name === field.name);
         if (!stored) return;
         const picker = field.picker_name
           ? [...document.querySelectorAll("[name]")].find((item) => item.name === field.picker_name)
           : null;
-        const value = picker ? picker.value : stored.value;
+        const value = picker?.value || stored.value;
         field.filled = Boolean(String(value || "").trim());
       });
       return state;
@@ -175,49 +248,46 @@
         setSubmissionBadge({ key: "pending", label: "等待 SRP 人員回報" });
       }
     };
+    const saveStepNow = async () => {
+      setSaveState("正在保存…", "saving");
+      try {
+        const result = await enqueueStorageWrite(async () => {
+          const response = await fetch(
+            appRoot + "/api/cases/" + encodeURIComponent(stepForm.dataset.caseId) + "/auto-save",
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
+              body: JSON.stringify({
+                step: stepForm.dataset.step,
+                storage_version: Number(stepForm.dataset.storageVersion || 0),
+                values: formObject(stepForm),
+              }),
+            },
+          );
+          const responseBody = await parseApiResponse(response, "保存失敗");
+          setStorageVersion(responseBody.storage_version);
+          return responseBody;
+        });
+        setSaveState("已自動保存", "saved");
+        if (result.submission_state) setSubmissionBadge(result.submission_state);
+        return true;
+      } catch (error) {
+        setSaveState(error.message || "保存失敗，請按「儲存」", "error");
+        return false;
+      }
+    };
     const queueSave = () => {
       clearTimeout(timer);
       setSaveState("正在保存…", "saving");
-      timer = setTimeout(async () => {
-        if (pending) {
-          saveAgain = true;
-          return;
-        }
-        pending = true;
-        try {
-          const result = await enqueueStorageWrite(async () => {
-            const response = await fetch(
-              appRoot + "/api/cases/" + encodeURIComponent(stepForm.dataset.caseId) + "/auto-save",
-              {
-                method: "POST",
-                headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
-                body: JSON.stringify({
-                  step: stepForm.dataset.step,
-                  storage_version: Number(stepForm.dataset.storageVersion || 0),
-                  values: formObject(stepForm),
-                }),
-              },
-            );
-            const responseBody = await response.json();
-            if (!response.ok || !responseBody.ok) {
-              throw new Error(responseBody.error || "保存失敗");
-            }
-            setStorageVersion(responseBody.storage_version);
-            return responseBody;
-          });
-          setSaveState("已自動保存", "saved");
-          if (result.export_readiness) exportReadiness = result.export_readiness;
-          if (result.submission_state) setSubmissionBadge(result.submission_state);
-        } catch (error) {
-          setSaveState(error.message || "保存失敗，請按「儲存」", "error");
-        } finally {
-          pending = false;
-          if (saveAgain) {
-            saveAgain = false;
-            queueSave();
-          }
-        }
+      timer = setTimeout(() => {
+        latestStepSave = saveStepNow();
       }, 650);
+    };
+    const flushStepSave = async () => {
+      clearTimeout(timer);
+      await latestStepSave;
+      latestStepSave = saveStepNow();
+      return await latestStepSave;
     };
 
     const handleAutoSave = (event) => {
@@ -323,15 +393,12 @@
                 body: JSON.stringify(data),
               },
             );
-            const responseBody = await response.json();
-            if (!response.ok || !responseBody.ok) {
-              throw new Error(responseBody.error || "建立證據失敗。");
-            }
+            const responseBody = await parseApiResponse(response, "建立證據失敗。");
             setStorageVersion(responseBody.storage_version);
             return responseBody;
           });
           const evidence = result.evidence;
-          if (result.export_readiness) exportReadiness = result.export_readiness;
+          appendEvidenceReadiness(evidence);
           stepForm.querySelectorAll("[data-evidence-select]").forEach((select) => {
             let option = [...select.options].find((item) => item.value === evidence.evidence_id);
             if (!option) {
@@ -346,7 +413,6 @@
           activeEvidenceSelect.dataset.previousValue = evidence.evidence_id;
           activeEvidenceSelect = null;
           evidenceDialog.close();
-          queueSave();
           setSaveState("證據已建立，Evidence ID 已選入欄位", "saved");
         } catch (error) {
           if (evidenceDialogError) evidenceDialogError.textContent = error.message || "建立證據失敗。";
@@ -372,7 +438,6 @@
     stepForm.addEventListener("submit", async (event) => {
       event.preventDefault();
       clearTimeout(timer);
-      saveAgain = false;
       setSaveState("正在保存…", "saving");
       try {
         await flushAwarenessSave();
@@ -385,6 +450,16 @@
 
     const evidenceList = document.getElementById("evidence-list");
     if (evidenceList) {
+      const evidenceDeleteDialog = document.getElementById("evidence-delete-dialog");
+      const evidenceDeleteTitle = document.getElementById("evidence-delete-title");
+      const evidenceDeleteDescription = document.getElementById("evidence-delete-description");
+      const evidenceDeleteReferencesSection = document.getElementById("evidence-delete-references-section");
+      const evidenceDeleteReferences = document.getElementById("evidence-delete-references");
+      const evidenceDeleteNoReferences = document.getElementById("evidence-delete-no-references");
+      const evidenceDeleteError = document.getElementById("evidence-delete-error");
+      const evidenceDeleteConfirm = document.getElementById("evidence-delete-confirm");
+      const evidenceDeleteCancel = document.getElementById("evidence-delete-cancel");
+      let activeEvidenceDeleteCard = null;
       const renumberEvidence = () => {
         [...evidenceList.querySelectorAll(".evidence-list-item")].forEach((card, index) => {
           card.dataset.evidenceRow = String(index);
@@ -407,22 +482,103 @@
           });
         });
       };
+      const updateEvidenceTitle = (card) => {
+        const evidenceId = card.querySelector("[data-evidence-id-input]")?.value.trim() || "未命名證據";
+        const title = card.querySelector(".evidence-summary-copy strong");
+        if (title) title.textContent = evidenceId;
+        card.querySelector(".remove-evidence")?.setAttribute(
+          "aria-label", `刪除 Evidence ID ${evidenceId}`,
+        );
+      };
+      const addEmptyEvidenceMessage = () => {
+        if (evidenceList.querySelector(".evidence-list-item")) return;
+        const empty = document.createElement("li");
+        empty.className = "empty-inline evidence-empty";
+        const title = document.createElement("strong");
+        title.textContent = "尚無證據紀錄";
+        const hint = document.createElement("p");
+        hint.textContent = "請回到 D1–D6 任一 Evidence ID 下拉選單，選擇「建立證據」。";
+        empty.append(title, hint);
+        evidenceList.append(empty);
+      };
+      evidenceDeleteCancel?.addEventListener("click", () => {
+        activeEvidenceDeleteCard = null;
+        evidenceDeleteDialog?.close();
+      });
+      evidenceDeleteDialog?.addEventListener("cancel", () => {
+        activeEvidenceDeleteCard = null;
+      });
+      evidenceList.addEventListener("input", (event) => {
+        const field = event.target.closest("[data-evidence-id-input]");
+        if (field) updateEvidenceTitle(field.closest(".evidence-list-item"));
+      });
       evidenceList.addEventListener("click", (event) => {
         const remove = event.target.closest(".remove-evidence");
         if (!remove) return;
-        remove.closest(".evidence-list-item")?.remove();
-        renumberEvidence();
-        if (!evidenceList.querySelector(".evidence-list-item")) {
-          const empty = document.createElement("li");
-          empty.className = "empty-inline evidence-empty";
-          const title = document.createElement("strong");
-          title.textContent = "尚無證據紀錄";
-          const hint = document.createElement("p");
-          hint.textContent = "請回到 D1–D6 任一 Evidence ID 下拉選單，選擇「建立證據」。";
-          empty.append(title, hint);
-          evidenceList.append(empty);
+        activeEvidenceDeleteCard = remove.closest(".evidence-list-item");
+        if (!activeEvidenceDeleteCard || !evidenceDeleteDialog) return;
+        const evidenceId = activeEvidenceDeleteCard.querySelector("[data-evidence-id-input]")?.value.trim() || "未命名證據";
+        const references = [...activeEvidenceDeleteCard.querySelectorAll(".evidence-reference-list span")]
+          .map((item) => item.textContent.trim())
+          .filter(Boolean);
+        evidenceDeleteTitle.textContent = `確定刪除 Evidence ID ${evidenceId}？`;
+        evidenceDeleteDescription.textContent = references.length
+          ? "刪除後會移除紀錄，並清除以下欄位中的 Evidence ID 引用。"
+          : "刪除後會移除這筆證據紀錄。";
+        evidenceDeleteReferences.replaceChildren();
+        references.forEach((reference) => {
+          const item = document.createElement("li");
+          item.textContent = reference;
+          evidenceDeleteReferences.append(item);
+        });
+        evidenceDeleteReferencesSection.hidden = !references.length;
+        evidenceDeleteNoReferences.hidden = Boolean(references.length);
+        evidenceDeleteError.textContent = "";
+        evidenceDeleteDialog.showModal();
+        evidenceDeleteConfirm?.focus();
+      });
+      evidenceDeleteConfirm?.addEventListener("click", async () => {
+        if (!activeEvidenceDeleteCard) return;
+        evidenceDeleteConfirm.disabled = true;
+        evidenceDeleteCancel.disabled = true;
+        evidenceDeleteError.textContent = "";
+        try {
+          clearTimeout(timer);
+          if (!await flushStepSave()) {
+            throw new Error("案件欄位尚未保存成功，請先處理保存錯誤後再刪除。");
+          }
+          const evidenceId = activeEvidenceDeleteCard
+            .querySelector("[data-evidence-id-input]")?.value.trim();
+          if (!evidenceId) throw new Error("Evidence ID 不可留空。");
+          await enqueueStorageWrite(async () => {
+            const response = await fetch(
+              appRoot + "/api/cases/" + encodeURIComponent(stepForm.dataset.caseId) + "/evidence/delete",
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
+                body: JSON.stringify({
+                  evidence_id: evidenceId,
+                  confirm_delete: true,
+                  storage_version: Number(stepForm.dataset.storageVersion || 0),
+                }),
+              },
+            );
+            const responseBody = await parseApiResponse(response, "刪除證據失敗");
+            setStorageVersion(responseBody.storage_version);
+            return responseBody;
+          });
+          activeEvidenceDeleteCard.remove();
+          activeEvidenceDeleteCard = null;
+          renumberEvidence();
+          addEmptyEvidenceMessage();
+          evidenceDeleteDialog.close();
+          setSaveState("證據與引用欄位已刪除", "saved");
+        } catch (error) {
+          evidenceDeleteError.textContent = error.message || "刪除證據失敗。";
+        } finally {
+          evidenceDeleteConfirm.disabled = false;
+          evidenceDeleteCancel.disabled = false;
         }
-        queueSave();
       });
     }
   }
@@ -444,12 +600,8 @@
           body: JSON.stringify(payload),
         },
       );
-      const responseBody = await response.json();
-      if (!response.ok || !responseBody.ok) {
-        throw new Error(responseBody.error || "保存失敗");
-      }
+      const responseBody = await parseApiResponse(response, "保存失敗");
       setStorageVersion(responseBody.storage_version);
-      if (responseBody.export_readiness) exportReadiness = responseBody.export_readiness;
       updateDeadlineCards(
         responseBody.deadlines,
         responseBody.deadline_labels,

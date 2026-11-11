@@ -130,6 +130,8 @@ class AppRouteTests(unittest.TestCase):
             },
         )
         self.assertEqual(save.status_code, 200, save.json)
+        self.assertNotIn("export_readiness", save.json)
+        self.assertNotIn("saved_at", save.json)
         version = save.json["storage_version"]
         stored = app_module.STORE.get(case_id)
         self.assertEqual(stored["forms"]["D2"]["13"]["entry"], "Route test case title")
@@ -152,6 +154,8 @@ class AppRouteTests(unittest.TestCase):
             },
         )
         self.assertEqual(awareness.status_code, 200, awareness.json)
+        self.assertNotIn("export_readiness", awareness.json)
+        self.assertNotIn("saved_at", awareness.json)
         self.assertEqual(awareness.json["deadlines"]["24"], "2026-11-11T09:30:00+08:00")
         version = awareness.json["storage_version"]
 
@@ -168,6 +172,8 @@ class AppRouteTests(unittest.TestCase):
             },
         )
         self.assertEqual(evidence.status_code, 200, evidence.json)
+        self.assertNotIn("export_readiness", evidence.json)
+        self.assertNotIn("saved_at", evidence.json)
         self.assertEqual(evidence.json["evidence"]["evidence_id"], "EV-ROUTE-001")
         duplicate = self.client.post(
             f"/api/cases/{case_id}/evidence",
@@ -180,6 +186,128 @@ class AppRouteTests(unittest.TestCase):
             },
         )
         self.assertEqual(duplicate.status_code, 409)
+
+    def test_evidence_rename_updates_references_and_duplicate_ids_are_rejected(self) -> None:
+        case_id, version = self._create_case()
+        created = self.client.post(
+            f"/api/cases/{case_id}/evidence",
+            headers={"X-CSRF-Token": self.csrf},
+            json={
+                "storage_version": version,
+                "step": "7.1",
+                "field_name": "field__D2__13__evidence_id",
+                "evidence_id": "EV-OLD-001",
+                "kind": "log",
+                "description": "rename test evidence",
+            },
+        )
+        self.assertEqual(created.status_code, 200, created.json)
+        version = created.json["storage_version"]
+
+        case = app_module.STORE.get(case_id)
+        case.setdefault("srp_submissions", {})["AEV_Final"] = {
+            "receipt_evidence_id": "EV-OLD-001",
+        }
+        version = app_module.STORE.save(case)
+
+        renamed = self.client.post(
+            f"/api/cases/{case_id}/auto-save",
+            headers={"X-CSRF-Token": self.csrf},
+            json={
+                "step": "7.9",
+                "storage_version": version,
+                "values": {
+                    "evidence__0__evidence_id": "EV-NEW-001",
+                    "evidence__0__kind": "log",
+                    "evidence__0__description": "rename test evidence",
+                },
+            },
+        )
+        self.assertEqual(renamed.status_code, 200, renamed.json)
+        self.assertNotIn("export_readiness", renamed.json)
+        stored = app_module.STORE.get(case_id)
+        self.assertEqual(stored["evidence"][0]["evidence_id"], "EV-NEW-001")
+        self.assertEqual(stored["forms"]["D2"]["13"]["evidence_id"], "EV-NEW-001")
+        self.assertEqual(
+            stored["srp_submissions"]["AEV_Final"]["receipt_evidence_id"],
+            "EV-NEW-001",
+        )
+
+        duplicate = self.client.post(
+            f"/api/cases/{case_id}/auto-save",
+            headers={"X-CSRF-Token": self.csrf},
+            json={
+                "step": "7.9",
+                "storage_version": renamed.json["storage_version"],
+                "values": {
+                    "evidence__0__evidence_id": "EV-DUPLICATE",
+                    "evidence__0__kind": "log",
+                    "evidence__1__evidence_id": "EV-DUPLICATE",
+                    "evidence__1__kind": "log",
+                },
+            },
+        )
+        self.assertEqual(duplicate.status_code, 400)
+        self.assertEqual(app_module.STORE.get(case_id)["evidence"][0]["evidence_id"], "EV-NEW-001")
+
+    def test_evidence_delete_requires_confirmation_and_clears_all_references(self) -> None:
+        case_id, version = self._create_case()
+        created = self.client.post(
+            f"/api/cases/{case_id}/evidence",
+            headers={"X-CSRF-Token": self.csrf},
+            json={
+                "storage_version": version,
+                "step": "7.1",
+                "field_name": "field__D2__13__evidence_id",
+                "evidence_id": "EV-DELETE-001",
+            },
+        )
+        self.assertEqual(created.status_code, 200, created.json)
+        case = app_module.STORE.get(case_id)
+        case.setdefault("srp_submissions", {})["AEV_Final"] = {
+            "receipt_evidence_id": "EV-DELETE-001",
+        }
+        version = app_module.STORE.save(case)
+
+        page = self.client.get(f"/cases/{case_id}?step=7.9")
+        self.assertEqual(page.status_code, 200)
+        version = app_module.STORE.get(case_id)["_storage_version"]
+        self.assertIn(b'id="evidence-delete-dialog"', page.data)
+        self.assertIn(b'aria-label="\xe5\x88\xaa\xe9\x99\xa4 Evidence ID EV-DELETE-001"', page.data)
+        self.assertIn(b'name="evidence__0__evidence_id"', page.data)
+        self.assertIn(b"Case ID", page.data)
+        self.assertIn("提交回執".encode(), page.data)
+        self.assertIn(b"viewBox=\"0 0 24 24\"", page.data)
+
+        delete_url = f"/api/cases/{case_id}/evidence/delete"
+        headers = {"X-CSRF-Token": self.csrf}
+        unconfirmed = self.client.post(
+            delete_url,
+            headers=headers,
+            json={"storage_version": version, "evidence_id": "EV-DELETE-001"},
+        )
+        self.assertEqual(unconfirmed.status_code, 400)
+        self.assertTrue(unconfirmed.json["requires_confirmation"])
+        self.assertGreaterEqual(len(unconfirmed.json["references"]), 2)
+        self.assertEqual(len(app_module.STORE.get(case_id)["evidence"]), 1)
+
+        deleted = self.client.post(
+            delete_url,
+            headers=headers,
+            json={
+                "storage_version": version,
+                "evidence_id": "EV-DELETE-001",
+                "confirm_delete": True,
+            },
+        )
+        self.assertEqual(deleted.status_code, 200, deleted.json)
+        self.assertGreaterEqual(deleted.json["cleared_reference_count"], 2)
+        stored = app_module.STORE.get(case_id)
+        self.assertEqual(stored["evidence"], [])
+        self.assertEqual(stored["forms"]["D2"]["13"]["evidence_id"], "")
+        self.assertEqual(
+            stored["srp_submissions"]["AEV_Final"]["receipt_evidence_id"], ""
+        )
 
     def test_form_submission_trash_and_permanent_delete(self) -> None:
         case_id, version = self._create_case()

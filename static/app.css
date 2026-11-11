@@ -305,8 +305,10 @@ textarea::placeholder, input::placeholder { color: #a4b0b7; }
 .evidence-expand-label { color: #758691; font-size: 9px; white-space: nowrap; }
 .evidence-record[open] .evidence-expand-label { color: var(--teal); }
 .evidence-record-content { border-top: 1px solid #edf1f3; padding: 12px 2px 7px; }
-.remove-evidence { border: 0; background: none; color: #9a6b68; font-size: 10px; cursor: pointer; }
-.remove-evidence:hover { color: var(--red); text-decoration: underline; }
+.remove-evidence { display: grid; place-items: center; width: 32px; height: 32px; border: 1px solid #e7c8c5; border-radius: 7px; background: #fff8f7; color: #a33a32; cursor: pointer; }
+.remove-evidence:hover { border-color: var(--red); background: #fff0ee; color: var(--red); }
+.remove-evidence:focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; }
+.remove-evidence svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .reference-pill.unreferenced { color: #647985; background: #f0f3f5; }
 .evidence-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
 .evidence-grid .wide { grid-column: 1 / -1; }
@@ -331,6 +333,9 @@ textarea::placeholder, input::placeholder { color: #a4b0b7; }
 .dialog-error:empty { display: none; }
 .evidence-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; padding-top: 4px; }
 .evidence-dialog-actions button:disabled { opacity: .6; cursor: wait; }
+.evidence-delete-content { display: grid; gap: 14px; }
+.evidence-delete-references { border: 1px solid #e7c8c5; border-radius: 9px; background: #fff8f7; padding: 12px; color: #6f302b; font-size: 11px; }
+.evidence-delete-references ul { display: grid; gap: 5px; max-height: 220px; overflow: auto; margin: 9px 0 0; padding-left: 20px; color: #526574; }
 .export-warning-dialog { width: min(560px, calc(100vw - 28px)); max-height: min(86vh, 720px); overflow: auto; border: 1px solid #dbe5e8; border-radius: 14px; padding: 0; color: var(--ink); box-shadow: 0 24px 80px #10273833; }
 .export-warning-dialog::backdrop { background: #10273877; backdrop-filter: blur(2px); }
 .export-warning-content { display: grid; gap: 10px; padding: 22px; }

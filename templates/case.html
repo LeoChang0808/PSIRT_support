@@ -247,7 +247,7 @@
           </div>
         </article>
         <div class="evidence-header">
-          <div><h3>證據索引與結案</h3><p>以下列出前面步驟已建立並選用的 Evidence ID；點選項目可檢視或編輯，引用欄位依 D1–D6 的選擇自動整理。</p></div>
+          <div><h3>證據索引與結案</h3><p>以下列出已建立的 Evidence ID；點選項目可檢視或編輯，引用欄位依 D1–D6 與 SRP 回執自動整理。</p></div>
         </div>
         <ul id="evidence-list" class="evidence-list">
           {% if not evidence_items %}
@@ -274,8 +274,7 @@
                 </summary>
                 <div class="evidence-record-content">
                   <div class="evidence-grid">
-                    <input type="hidden" name="evidence__{{ loop.index0 }}__evidence_id" value="{{ item.get('evidence_id','') }}">
-                    <label><span>Evidence ID</span><input value="{{ item.get('evidence_id','') }}" readonly></label>
+                    <label><span>Evidence ID</span><input name="evidence__{{ loop.index0 }}__evidence_id" value="{{ item.get('evidence_id','') }}" maxlength="100" required data-evidence-id-input data-autosave></label>
                     <label class="wide"><span>取得時間</span>
                       <input type="hidden" name="evidence__{{ loop.index0 }}__obtained_at" value="{{ item.get('obtained_at','') }}">
                       <input type="datetime-local" name="evidence__{{ loop.index0 }}__obtained_at_picker"
@@ -299,7 +298,9 @@
                   </div>
                 </div>
               </details>
-              {% if item.get('can_remove') %}<button type="button" class="remove-evidence" aria-label="移除 {{ item.get('evidence_id','') }}">移除</button>{% endif %}
+              <button type="button" class="remove-evidence" aria-label="刪除 Evidence ID {{ item.get('evidence_id','') }}">
+                <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false"><path d="M4 7h16M9 7V4h6v3m3 0-.8 13H6.8L6 7m4 3v7m4-7v7"/></svg>
+              </button>
             </li>
           {% endfor %}
         </ul>
@@ -427,6 +428,25 @@
       <button type="submit" class="button primary">建立並選用</button>
     </div>
   </form>
+</dialog>
+
+<dialog id="evidence-delete-dialog" class="evidence-dialog evidence-delete-dialog" aria-labelledby="evidence-delete-title" aria-describedby="evidence-delete-description evidence-delete-error">
+  <div class="evidence-delete-content">
+    <div class="evidence-dialog-heading">
+      <div><p class="eyebrow">DELETE EVIDENCE</p><h2 id="evidence-delete-title">刪除證據</h2></div>
+      <p id="evidence-delete-description">刪除後，證據紀錄將從案件移除。</p>
+    </div>
+    <section id="evidence-delete-references-section" class="evidence-delete-references" hidden>
+      <strong>以下欄位引用此證據，確認後會一併清除引用：</strong>
+      <ul id="evidence-delete-references"></ul>
+    </section>
+    <p id="evidence-delete-no-references" class="field-hint" hidden>目前沒有其他欄位引用此證據。</p>
+    <p id="evidence-delete-error" class="dialog-error" role="alert" aria-live="polite"></p>
+    <div class="evidence-dialog-actions">
+      <button type="button" class="button secondary" id="evidence-delete-cancel">取消</button>
+      <button type="button" class="button danger" id="evidence-delete-confirm">刪除證據</button>
+    </div>
+  </div>
 </dialog>
 
 <details class="export-detail">
